@@ -3,6 +3,8 @@
 ## Descripción
 Este es un sistema de adquisición y análisis de parámetros eléctricos (P, S, Q, D, THD) diseñado para inversores y rectificadores controlados. Destaca por utilizar procesamiento de señales mediante correlación estricta de la Serie de Fourier (sin dependencias de FFT), lo que le permite operar de forma ligera y en tiempo real.
 
+![Interfaz del Analizador de Potencia](assets/captura.png)
+
 ## Arquitectura
 El software utiliza un patrón MVC (Modelo-Vista-Controlador):
 - **Modelo:** Motor matemático puro en NumPy (`calculos.py`).
@@ -21,8 +23,8 @@ El sistema está arquitectónicamente preparado para acoplarse a un microcontrol
 
 1. **Clonar el repositorio:**
    ```bash
-   git clone <TU_URL_REMOTO>
-   cd Proyecto2C
+   git clone https://github.com/EliasUpstein/InverRect-Monitor.git
+   cd InverRect-Monitor
    ```
 
 2. **Crear y activar un entorno virtual (Recomendado):**
