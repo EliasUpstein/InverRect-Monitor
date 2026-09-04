@@ -53,6 +53,11 @@ El analizador cuenta con una biblioteca de 12 señales estandarizadas:
 - **Visualización Doble (Subplots Matplotlib):**
   - **Subplot Superior:** Reconstrucción temporal de tensión y corriente (escalada dinámicamente) para 2 ciclos completos, con líneas verticales de referencia para los instantes de disparo $\alpha$.
   - **Subplot Inferior:** Espectro de barras lado a lado comparando las componentes armónicas RMS de tensión y corriente por orden armónico.
+- **Cursores Interactivos y Anotaciones al Clic:**
+  - Inspección dinámica de valores haciendo clic sobre cualquiera de los dos gráficos.
+  - En el dominio temporal: Muestra el ángulo exacto ($\text{rad}$) y la amplitud correspondiente ($\text{V}$ o $\text{A}$).
+  - En el espectro armónico: Identifica el número de armónica ($n$) y su magnitud eficaz ($\text{RMS}$).
+  - Etiquetas flotantes estilizadas con directriz y eliminación automática del punto anterior para evitar superposiciones, sincronizadas con el bucle de actualización en tiempo real.
 - **Modo en Tiempo Real:** Bucle configurable en segundos para simulación continua o monitoreo de variables en vivo.
 
 ---

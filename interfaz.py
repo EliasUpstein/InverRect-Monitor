@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.widgets import Cursor
 from calculos import AnalizadorDePotencia
 
 # ==========================================
@@ -28,6 +29,9 @@ class InterfazGrafica:
         style.configure("TCheckbutton", background="#f4f6f9", font=("Segoe UI", 12))
         
         self.root.option_add("*TCombobox*Listbox.font", ("Segoe UI", 12))
+        
+        # Referencia para anotación/cursor flotante al hacer clic
+        self.anotacion = None
         
         # Instanciar el modelo matemático
         self.analizador = AnalizadorDePotencia()
@@ -139,6 +143,9 @@ class InterfazGrafica:
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.frame_grafico)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
+        # Conectar evento de clic del mouse para cursor interactivo
+        self.canvas.mpl_connect('button_press_event', self.al_hacer_click)
+        
         # Inicializar estado del campo Alfa según la señal por defecto
         self.actualizar_estado_alfa()
 
@@ -233,6 +240,7 @@ class InterfazGrafica:
 
             # 5. Actualizar Vista: Subplot 1 (Ondas en el tiempo)
             self.ax1.clear()
+            self.anotacion = None
             
             # Duplicar señales para mostrar 2 ciclos
             theta_2_ciclos = np.concatenate([self.analizador.theta, self.analizador.theta + 2 * np.pi])
@@ -317,3 +325,39 @@ class InterfazGrafica:
 
         except ValueError as e:
             messagebox.showerror("Error de Entrada", f"Por favor verifica que todos los campos contengan números válidos.\nDetalle: {e}")
+
+    def al_hacer_click(self, event):
+        """Manejador de evento de clic para cursores interactivos y anotaciones flotantes"""
+        if event.inaxes is not None:
+            # Eliminar anotación previa si existe
+            if self.anotacion is not None:
+                try:
+                    self.anotacion.remove()
+                except Exception:
+                    pass
+                self.anotacion = None
+
+            # Anotación para el Subplot 1 (Dominio del Tiempo)
+            if event.inaxes == self.ax1:
+                texto = f"Ángulo: {event.xdata:.2f} rad\nAmplitud: {event.ydata:.2f} V/A"
+                self.anotacion = event.inaxes.annotate(
+                    texto,
+                    xy=(event.xdata, event.ydata),
+                    xytext=(15, 15),
+                    textcoords="offset points",
+                    bbox=dict(boxstyle="round", fc="white", ec="gray", alpha=0.9),
+                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0", color="#2c3e50")
+                )
+            # Anotación para el Subplot 2 (Dominio de la Frecuencia)
+            elif event.inaxes == self.ax2:
+                texto = f"Armónica: {int(round(event.xdata))}\nMagnitud: {event.ydata:.2f}"
+                self.anotacion = event.inaxes.annotate(
+                    texto,
+                    xy=(event.xdata, event.ydata),
+                    xytext=(15, 15),
+                    textcoords="offset points",
+                    bbox=dict(boxstyle="round", fc="white", ec="gray", alpha=0.9),
+                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0", color="#2c3e50")
+                )
+
+            self.canvas.draw_idle()
