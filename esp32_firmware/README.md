@@ -6,6 +6,7 @@ Este directorio contiene el firmware embebido para el microcontrolador ESP32, en
 El firmware aprovecha la arquitectura de doble núcleo (dual-core) del ESP32 para separar las tareas de tiempo crítico de las operaciones de red:
 
 - **Core 1 (Control en Tiempo Real por Interrupciones):**
+  - **Control en Grados Sexagesimales ($\alpha$):** Parámetro de entrada configurable en grados ($0.0^\circ$ a $180.0^\circ$) con conversión automática a microsegundos según la frecuencia de red ($50\text{ Hz} \to 10000\text{ }\mu s$ por semiciclo).
   - **Detección de Cruce por Cero (`zero_cross_isr`):** Captura el paso por cero de la red de CA mediante optoacoplador (ej. PC817) mediante interrupciones externas IRAM.
   - **Temporizador de Hardware (`timer_isr`):** Temporizador de precisión a 1 MHz (resolución de 1 $\mu s$) que gestiona el retardo exacto correspondiente al ángulo de disparo $\alpha$ con compensación de offset de hardware (`offset_hardware_us`), generando pulsos breves en la compuerta del TRIAC/Tiristor.
 
@@ -13,4 +14,5 @@ El firmware aprovecha la arquitectura de doble núcleo (dual-core) del ESP32 par
   - **Tarea FreeRTOS (`TaskComunicaciones`):** Ejecución independiente asignada al Core 0 para el muestreo de canales ADC y la transmisión asíncrona de telemetría vía Wi-Fi/Sockets hacia la aplicación de PC, sin interferir en la sincronización de fase.
 
 ## Estructura
-- `main.cpp`: Código fuente principal implementado bajo framework Arduino y FreeRTOS.
+- `main.cpp`: Código fuente principal implementado bajo framework Arduino y FreeRTOS. Soporta ajuste dinámico del ángulo de disparo en grados sexagesimales vía Monitor Serial.
+

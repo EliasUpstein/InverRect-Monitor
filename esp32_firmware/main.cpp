@@ -17,18 +17,57 @@
 #define PIN_ZERO_CROSS 18  // Entrada digital: Cruce por cero (detector optoacoplado PC817)
 #define PIN_DISPARO    19  // Salida digital: Disparo de compuerta (MOC3021 / TRIAC / Tiristor)
 
+// Frecuencia de la red eléctrica de corriente alterna (50 Hz en Argentina / Europa, o 60 Hz)
+#define FRECUENCIA_RED_HZ 50.0f 
+
+// Duración de un semiciclo (180°) en microsegundos: T_semi = 1 / (2 * f) * 1e6 = 10000 us a 50 Hz
+#define SEMIPERIODO_US    (1000000.0f / (2.0f * FRECUENCIA_RED_HZ))
+
 // ==========================================
 // 2. VARIABLES GLOBALES VOLÁTILES
 // ==========================================
 // Variables de control de fase modificables dinámicamente
-volatile uint32_t angulo_disparo_us = 5000; // Retardo alfa en us (ej. 5000 us = 90° para red de 50 Hz)
+volatile float angulo_disparo_deg = 90.0f;  // Ángulo de disparo alfa en grados sexagesimales (0.0° a 180.0°)
+volatile uint32_t angulo_disparo_us = 5000; // Retardo alfa equivalente en microsegundos (calculado automáticamente)
 volatile uint32_t offset_hardware_us = 200; // Compensación de retardo físico del PC817 (200 us por defecto)
 
 // Puntero al temporizador de hardware del ESP32
 hw_timer_t * timer = NULL;
 
 // ==========================================
-// 3. RUTINAS DE INTERRUPCIÓN (CORE 1 - IRAM)
+// 3. FUNCIONES DE CONVERSIÓN Y CONTROL
+// ==========================================
+
+/**
+ * Convierte un ángulo en grados sexagesimales (0.0° - 180.0°) a tiempo en microsegundos (us).
+ * Fórmula: t_us = (alfa_deg / 180.0) * SEMIPERIODO_US
+ */
+inline uint32_t grados_a_microsegundos(float grados) {
+    if (grados < 0.0f) grados = 0.0f;
+    if (grados > 180.0f) grados = 180.0f;
+    return (uint32_t)((grados / 180.0f) * SEMIPERIODO_US);
+}
+
+/**
+ * Actualiza el ángulo de disparo a partir de un valor en grados sexagesimales.
+ * Realiza la conversión fuera de la ISR para optimizar el rendimiento del Core 1.
+ */
+void set_angulo_disparo_deg(float grados) {
+    if (grados < 0.0f) grados = 0.0f;
+    if (grados > 180.0f) grados = 180.0f;
+
+    angulo_disparo_deg = grados;
+    angulo_disparo_us = grados_a_microsegundos(grados);
+
+    Serial.print("[Control] Nuevo ángulo fijado: ");
+    Serial.print(angulo_disparo_deg, 1);
+    Serial.print("° -> Retardo timer: ");
+    Serial.print(angulo_disparo_us);
+    Serial.println(" us");
+}
+
+// ==========================================
+// 4. RUTINAS DE INTERRUPCIÓN (CORE 1 - IRAM)
 // ==========================================
 
 /**
@@ -117,22 +156,25 @@ void setup() {
     pinMode(PIN_DISPARO, OUTPUT);
     digitalWrite(PIN_DISPARO, LOW);
 
-    // 2. Inicialización del Temporizador de Hardware
+    // 2. Inicialización del ángulo de disparo en grados sexagesimales (conversión a us)
+    set_angulo_disparo_deg(angulo_disparo_deg);
+
+    // 3. Inicialización del Temporizador de Hardware
     // Prescaler = 80 -> Con reloj base de 80 MHz: 80 MHz / 80 = 1 MHz (1 tick = 1 us)
     // Parámetros: timerBegin(numero_timer, prescaler, cuenta_arriba)
     timer = timerBegin(0, 80, true);
 
-    // 3. Vincular interrupción del timer a timer_isr
+    // 4. Vincular interrupción del timer a timer_isr
     timerAttachInterrupt(timer, &timer_isr, true);
 
     // Configuración inicial de alarma en modo single-shot (autoreload = false)
     timerAlarmWrite(timer, angulo_disparo_us, false);
     timerAlarmEnable(timer);
 
-    // 4. Adjuntar interrupción externa de Cruce por Cero (flanco ascendente)
+    // 5. Adjuntar interrupción externa de Cruce por Cero (flanco ascendente)
     attachInterrupt(digitalPinToInterrupt(PIN_ZERO_CROSS), zero_cross_isr, RISING);
 
-    // 5. Creación de la Tarea FreeRTOS asignada al Core 0
+    // 6. Creación de la Tarea FreeRTOS asignada al Core 0
     xTaskCreatePinnedToCore(
         TaskComunicaciones,      /* Función que implementa la tarea */
         "TaskComunicaciones",    /* Nombre descriptivo de la tarea */
@@ -144,13 +186,25 @@ void setup() {
     );
 
     Serial.println("[Core 1] Interrupciones de Cruce por Cero y Temporizador activas.");
-    Serial.println("--- Sistema listo para control de fase ---");
+    Serial.println("--- Sistema listo para control de fase (Envía grados por Serial para cambiar) ---");
 }
 
 // ==========================================
 // 6. LOOP PRINCIPAL (CORE 1)
 // ==========================================
 void loop() {
-    // El Core 1 queda libre para la gestión de interrupciones de alta prioridad
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // Permite ajustar el ángulo de disparo dinámicamente vía Monitor Serial (ej. enviar '45.0')
+    if (Serial.available() > 0) {
+        float nuevo_angulo = Serial.parseFloat();
+        if (nuevo_angulo >= 0.0f && nuevo_angulo <= 180.0f) {
+            set_angulo_disparo_deg(nuevo_angulo);
+        }
+        // Limpiar caracteres remanentes en el buffer serial
+        while (Serial.available() > 0) {
+            Serial.read();
+        }
+    }
+
+    // El Core 1 cede tiempo para no saturar la CPU
+    vTaskDelay(pdMS_TO_TICKS(100));
 }
