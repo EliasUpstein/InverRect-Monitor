@@ -9,11 +9,15 @@ El núcleo de cálculo realiza el procesamiento de señales mediante correlació
 
 ---
 
-## Arquitectura del Proyecto (MVC)
-El software está estructurado bajo el patrón **Modelo-Vista-Controlador**:
-- **Modelo ([calculos.py](calculos.py)):** Motor matemático puro implementado en NumPy. Genera las formas de onda de tensión, modela la respuesta temporal y armónica para cargas de impedancia compleja ($R$ y $X$), descompone en coeficientes de Fourier y calcula parámetros de potencia según el estándar IEEE 1459.
-- **Vista ([interfaz.py](interfaz.py)):** Interfaz gráfica interactiva desarrollada con Tkinter y Matplotlib. Dispone de controles de entrada, ajuste de unidades (grados/radianes), modo de actualización en tiempo real y visualización en doble subplot vertical.
-- **Controlador ([main.py](main.py)):** Punto de entrada y gestión del ciclo de vida de la aplicación.
+## Estructura del Monorepo
+El proyecto está organizado en dos componentes principales:
+- **`pc_software/` (Aplicación de Escritorio - MVC):**
+  - **Modelo ([calculos.py](pc_software/calculos.py)):** Motor matemático puro implementado en NumPy. Genera las formas de onda de tensión, modela la respuesta temporal y armónica para cargas de impedancia compleja ($R$ y $X$), descompone en coeficientes de Fourier y calcula parámetros de potencia según el estándar IEEE 1459.
+  - **Vista ([interfaz.py](pc_software/interfaz.py)):** Interfaz gráfica interactiva desarrollada con Tkinter y Matplotlib. Dispone de controles de entrada, ajuste de unidades (grados/radianes), modo de actualización en tiempo real, cursores interactivos y visualización en doble subplot vertical.
+  - **Controlador ([main.py](pc_software/main.py)):** Punto de entrada y gestión del ciclo de vida de la aplicación.
+- **`esp32_firmware/` (Firmware Embebido - Dual Core):**
+  - Control de tiempo real en Core 1 mediante interrupciones de cruce por cero y Hardware Timer para el disparo de compuerta (TRIAC/Tiristor).
+  - Tarea de comunicaciones y telemetría en Core 0 bajo FreeRTOS.
 
 ---
 
@@ -86,5 +90,5 @@ El analizador cuenta con una biblioteca de 12 señales estandarizadas:
 
 4. **Ejecutar la aplicación:**
    ```bash
-   python main.py
+   python pc_software/main.py
    ```

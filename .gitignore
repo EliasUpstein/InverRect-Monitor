@@ -15,3 +15,20 @@ __pycache__/
 # Archivos del sistema operativo
 .DS_Store
 Thumbs.db
+
+# PlatformIO & C++ / ESP32 Build artifacts
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+
+# ESP-IDF / C++ Binarios y compilación
+build/
+*.bin
+*.elf
+*.hex
+*.map
+*.o
+*.d
+sdkconfig.old
