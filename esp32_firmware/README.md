@@ -31,23 +31,27 @@ El firmware desacopla estrictamente las operaciones de tiempo crítico de las ta
 
 ### Core 1: Control de Tiempo Real en Microsegundos
 * **Detección de Cruce por Cero (`zero_cross_isr`):**
-  * Vinculada a interrupción externa por flanco de bajada/subida en `PIN_ZERO_CROSS` (GPIO 18).
+  * Vinculada a interrupción externa por flanco ascendente en `PIN_ZERO_CROSS` (GPIO 18).
   * Código alojado en memoria rápida `IRAM_ATTR` para una latencia de atención inferior a $1\,\mu\text{s}$.
-  * Detiene y resetea el temporizador de hardware en cada semiciclo ($10000\,\mu\text{s}$ para $50\text{ Hz}$).
+  * **Filtro Antirrebote / Ruido Industrial:** Descarta activamente cualquier interrupción que ocurra antes de $7000\,\mu\text{s}$ desde el último cruce válido (en red de 50 Hz el semiciclo dura $10000\,\mu\text{s}$), evitando que los transitorios de línea desfasen el temporizador.
+  * Detiene y resetea el temporizador de hardware en cada semiciclo.
 * **Temporizador de Hardware (`timer_isr`):**
   * Temporizador de 64 bits a 1 MHz (resolución de $1\,\mu\text{s}$).
   * Se dispara exactamente tras cumplirse el retardo calculado para el ángulo $\alpha$.
   * Emite un pulso de compuerta de $50\,\mu\text{s}$ por `PIN_DISPARO` (GPIO 19) para cebar los tiristores o TRIAC a través de optoacoplador MOC3021.
-* **Compensación de Offset Físico (`offset_hardware_us`):**
-  * Compensa el retraso de propagación y conmutación de los optoacopladores de cruce por cero (PC817), fijado por defecto en $200\,\mu\text{s}$.
+* **Compensación de Offset Físico Monótona (`offset_hardware_us`):**
+  * Compensa el retardo de conmutación del optoacoplador PC817 ($200\,\mu\text{s}$ por defecto).
+  * Si el tiempo base es menor o igual al offset ($\alpha \le 3.6^\circ$), fija de forma segura `us_final = 10` $\mu\text{s}$, garantizando una respuesta estrictamente continua y monótona sin saltos bruscos de fase.
 
 ### Core 0: Capa de Red y Servicios (FreeRTOS `TaskComunicaciones`)
-* **Conexión Wi-Fi Station (STA):** Enlaza el microcontrolador a la red inalámbrica de control.
-* **Servidor UDP (Puerto 8888):**
+* **Conexión Wi-Fi Station (STA) con Timeout y Resiliencia:**
+  * Implementa un timeout de conexión de **15 segundos** para no bloquear el microcontrolador si no hay red disponible (permitiendo operación local vía USB).
+  * Incluye bucle de **reconexión automática** periódica cada 10 segundos ante pérdidas de señal Wi-Fi.
+* **Servidor UDP Bidireccional (Puerto 8888):**
   * Escucha asíncrona de datagramas de control enviados desde la aplicación de PC (`interfaz.py`).
   * Protocolo en texto plano: `"ALFA:xx.x"` (ej. `"ALFA:45.0"`).
-  * Valida rango seguro ($0.0^\circ \le \alpha \le 180.0^\circ$) y realiza la conversión a microsegundos:
-    $$t_{\mu s} = \left(\frac{\alpha}{180.0}\right) \times 10000\,\mu s - \text{offset}$$
+  * Valida rango seguro ($0.0^\circ \le \alpha \le 180.0^\circ$) e invoca atómicamente a `set_angulo_disparo_deg(alfa)`.
+  * **Confirmación Inmediata (ACK):** Responde al remitente con `"ACK:ALFA:xx.x\n"` (o `"NACK:OUT_OF_RANGE:xx.x\n"` si está fuera de rango) permitiendo a la PC certificar la conexión en tiempo real.
 * **Actualizaciones Inalámbricas (ArduinoOTA):**
   * Permite flashear nuevas versiones de firmware a través de Wi-Fi sin necesidad de desconectar el ESP32 del circuito de potencia.
 * **Sincronización Inter-Core Segura (`portMUX_TYPE`):**
@@ -59,24 +63,26 @@ El firmware desacopla estrictamente las operaciones de tiempo crítico de las ta
 
 | Función | Pin ESP32 | Tipo | Dispositivo Conectado | Descripción |
 | :--- | :---: | :---: | :--- | :--- |
-| **Cruce por Cero (ZC)** | `GPIO 18` | Entrada Digital | Detector ZC (PC817 / 4N25) | Pulso en cada cruce por cero de la red ($50\text{ Hz}$). |
+| **Cruce por Cero (ZC)** | `GPIO 18` | Entrada Digital | Detector ZC (PC817 / 4N25) | Pulso en cada cruce por cero de la red ($50\text{ Hz}$) con filtro antirrebote de $7000\,\mu\text{s}$. |
 | **Disparo de Compuerta** | `GPIO 19` | Salida Digital | Driver Opto-TRIAC (MOC3021) | Pulso de $50\,\mu\text{s}$ hacia la compuerta de tiristores/TRIAC. |
 | **Monitor Serie (UART)** | `TX0 / RX0` | Bidireccional | PC / Convertidor USB-Serie | Telemetría a 115200 baudios y comandos manuales de prueba. |
 
 ---
 
-## 3. Protocolo de Comunicación UDP
+## 3. Protocolo de Comunicación UDP (Handshake con ACK)
 
-El ESP32 escucha en el puerto UDP asignado (`8888`). Los mensajes recibidos deben respetar el siguiente formato:
+El ESP32 escucha en el puerto UDP asignado (`8888`). Los mensajes recibidos y respuestas respetan el siguiente formato:
 
 ```
-ALFA:<grados>
+[PC -> ESP32]   ALFA:<grados>
+[ESP32 -> PC]   ACK:ALFA:<grados>   (Si está dentro de 0.0° a 180.0°)
+[ESP32 -> PC]   NACK:OUT_OF_RANGE:<grados> (Si está fuera de rango)
 ```
 
-**Ejemplos:**
-* `ALFA:0.0` $\to$ Conducción máxima (retardo mínimo).
-* `ALFA:90.0` $\to$ Disparo a mitad de semiciclo ($5000\,\mu\text{s} - \text{offset}$).
-* `ALFA:150.0` $\to$ Conducción reducida.
+**Ejemplos de Comando y Respuesta:**
+* Envío: `ALFA:0.0` $\to$ Respuesta: `ACK:ALFA:0.0` (Conducción máxima, disparo seguro inmediato).
+* Envío: `ALFA:90.0` $\to$ Respuesta: `ACK:ALFA:90.0` (Disparo a mitad de semiciclo).
+* Envío: `ALFA:195.0` $\to$ Respuesta: `NACK:OUT_OF_RANGE:195.0` (Rechazado, ángulo descartado).
 
 Cualquier comando fuera del intervalo $[0.0, 180.0]$ es descartado automáticamente para prevenir condiciones inseguras en los semiconductores de potencia.
 

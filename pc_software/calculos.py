@@ -172,14 +172,16 @@ class AnalizadorDePotencia:
             i_harmonics.append((in_rms, fase_i))
 
         v1_rms = v_harmonics[0][0]
-        if v1_rms > 0.1: # Umbral para discriminar ruido de punto flotante
+        umbral_v1 = max(1e-6, 1e-4 * v_rms) # Umbral dinámico para evitar falsos 0.00% en señales de baja amplitud
+        if v1_rms > umbral_v1:
             suma_cuadrados = sum(h[0]**2 for h in v_harmonics[1:])
             thd_v = (float(np.sqrt(suma_cuadrados)) / v1_rms) * 100
         else:
             thd_v = 0.0 # Omitir THD si no hay componente fundamental significativa
 
         i1_rms = i_harmonics[0][0]
-        if i1_rms > 0.01: # Protección ante división por cero / ruido para corriente
+        umbral_i1 = max(1e-6, 1e-4 * i_rms) # Umbral dinámico que no discrimina corrientes en miliamperios
+        if i1_rms > umbral_i1:
             suma_cuadrados_i = sum(h[0]**2 for h in i_harmonics[1:])
             thd_i = (float(np.sqrt(suma_cuadrados_i)) / i1_rms) * 100
         else:
@@ -189,7 +191,7 @@ class AnalizadorDePotencia:
         P = float(np.mean(v * i))
         FP = P / S if S > 0 else 0.0
         
-        Q1 = v1_rms * i_harmonics[0][0] * np.sin(v_harmonics[0][1] - i_harmonics[0][1])
+        Q1 = v1_rms * i1_rms * np.sin(v_harmonics[0][1] - i_harmonics[0][1])
         D = float(np.sqrt(max(0, S**2 - P**2 - Q1**2)))
 
         espectro_v = np.array([h[0] for h in v_harmonics])

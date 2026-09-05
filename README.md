@@ -109,9 +109,9 @@ InverRect-Monitor/
 * **Modo en Tiempo Real:** Bucle de simulación y refresco continuo configurable en segundos.
 
 ### ⚡ Control de Hardware Físico en Tiempo Real
-* **Microsegundos de Precisión:** El ESP32 ejecuta la sincronización de cruce por cero y el temporizador de hardware en el Core 1 con código en `IRAM`, asegurando un disparo libre de jitter.
-* **Enlace Inalámbrico Bidireccional:** El operador ingresa el ángulo en la PC y un cliente UDP transmite la trama `"ALFA:xx.x"` al ESP32 a través de Wi-Fi.
-* **Protección de Seguridad Industrial:** Validación automática en la interfaz de usuario que limita el ángulo de disparo estrictamente al rango seguro $0.0^\circ \le \alpha \le 180.0^\circ$, bloqueando valores fuera de rango para prevenir daños en los semiconductores.
+* **Microsegundos de Precisión:** El ESP32 ejecuta la sincronización de cruce por cero y el temporizador de hardware en el Core 1 con código en `IRAM`, asegurando un disparo libre de jitter. Incorpora un filtro de ventana de supresión de $7000\,\mu\text{s}$ contra transitorios y rebotes en la red de 50 Hz.
+* **Enlace Inalámbrico Bidireccional con Handshake (ACK/NACK):** El operador configura la IP en la PC y despacha el comando `"ALFA:xx.x"`. La aplicación verifica activamente la conexión aguardando el paquete de confirmación `"ACK:ALFA:xx.x"` emitido por el ESP32, alertando con precisión si el microcontrolador está apagado o la IP es inalcanzable.
+* **Protección de Seguridad Industrial y Monotonicidad:** Compensación continua de retardo de optoacoplador que previene saltos bruscos en bajas conducciones, y validación automática en la interfaz que restringe el ángulo estrictamente al rango seguro $0.0^\circ \le \alpha \le 180.0^\circ$.
 * **Flasheo Inalámbrico (OTA):** Soporte para reprogramar el firmware del ESP32 a distancia mientras se encuentra instalado en el banco de pruebas.
 
 ---

@@ -1,11 +1,14 @@
 import socket
+import ipaddress
 import tkinter as tk
 from tkinter import ttk, messagebox
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.widgets import Cursor
-from calculos import AnalizadorDePotencia
+try:
+    from calculos import AnalizadorDePotencia
+except ImportError:
+    from pc_software.calculos import AnalizadorDePotencia
 
 # ==========================================
 # MÓDULO 2: INTERFAZ GRÁFICA (La "Vista")
@@ -34,12 +37,13 @@ class InterfazGrafica:
         
         # Referencia para anotación/cursor flotante al hacer clic
         self.anotacion = None
+        self.timer_id = None            # Identificador del temporizador after para tiempo real
         
         # Instanciar el modelo matemático
         self.analizador = AnalizadorDePotencia()
         
         # Configuración de red para comunicación UDP con el ESP32
-        self.esp32_ip = "192.168.X.X"  # Reemplazar con la dirección IP asignada al ESP32 (ver salida en Monitor Serial)
+        self.esp32_ip = "192.168.1.50"  # IP por defecto configurable desde la interfaz
         self.esp32_port = 8888          # Puerto UDP local del ESP32
         
         # Opciones de señales (12 opciones según arquitectura y Modelo)
@@ -132,6 +136,13 @@ class InterfazGrafica:
         frame_hw = ttk.LabelFrame(frame_izq, text="Control de Hardware (ESP32)", padding="6")
         frame_hw.pack(fill=tk.X, pady=(0, 6))
 
+        frame_ip = ttk.Frame(frame_hw)
+        frame_ip.pack(fill=tk.X, pady=(0, 3))
+        ttk.Label(frame_ip, text="IP ESP32:").pack(side=tk.LEFT)
+        self.ent_esp32_ip = ttk.Entry(frame_ip, width=15, font=("Segoe UI", 10))
+        self.ent_esp32_ip.insert(0, self.esp32_ip)
+        self.ent_esp32_ip.pack(side=tk.LEFT, padx=(4, 0), fill=tk.X, expand=True)
+
         self.lbl_estado_hw = ttk.Label(frame_hw, text="Estado: Desconectado", font=("Segoe UI", 10, "bold"))
         self.lbl_estado_hw.pack(anchor="w", pady=(0, 3))
 
@@ -163,6 +174,8 @@ class InterfazGrafica:
             
         self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(8, 6), dpi=100)
         self.fig.patch.set_facecolor('#f4f6f9')
+        # Configuración fija de márgenes para máxima estabilidad y evitar parpadeos en tiempo real
+        self.fig.subplots_adjust(left=0.09, right=0.96, top=0.93, bottom=0.09, hspace=0.38)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.frame_grafico)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
@@ -181,6 +194,9 @@ class InterfazGrafica:
             self.bucle_actualizacion()
         else:
             self.ent_refresco.config(state="disabled")
+            if self.timer_id is not None:
+                self.root.after_cancel(self.timer_id)
+                self.timer_id = None
 
     def bucle_actualizacion(self):
         if self.var_tiempo_real.get():
@@ -191,10 +207,13 @@ class InterfazGrafica:
                 ms = int(segundos * 1000)
                 
                 self.procesar_datos()
-                self.root.after(ms, self.bucle_actualizacion)
+                self.timer_id = self.root.after(ms, self.bucle_actualizacion)
             except ValueError:
                 self.var_tiempo_real.set(False)
                 self.ent_refresco.config(state="disabled")
+                if self.timer_id is not None:
+                    self.root.after_cancel(self.timer_id)
+                    self.timer_id = None
                 messagebox.showwarning("Error de Formato", "Por favor ingresa un número numérico válido para los segundos de refresco.")
 
     def actualizar_estado_alfa(self, event=None):
@@ -211,8 +230,19 @@ class InterfazGrafica:
 
     def enviar_angulo_hardware(self):
         """Lee el ángulo alfa de entrada, valida que sea un float seguro entre 0° y 180°,
-        y encola el comando para ser transmitido al microcontrolador ESP32."""
+        transmite el comando vía UDP al microcontrolador ESP32 y verifica la conexión
+        aguardando activamente un acuse de recibo (ACK)."""
         try:
+            # 0. Leer y validar sintaxis de la dirección IP
+            ip_ingresada = self.ent_esp32_ip.get().strip() if hasattr(self, 'ent_esp32_ip') else self.esp32_ip
+            if not ip_ingresada:
+                raise ValueError("Debe ingresar una dirección IP válida para el ESP32.")
+            try:
+                ipaddress.ip_address(ip_ingresada)
+            except ValueError:
+                raise ValueError(f"'{ip_ingresada}' no es una dirección IP válida (ej. 192.168.1.50).")
+            self.esp32_ip = ip_ingresada
+
             # 1. Leer el valor actual del campo self.ent_alfa
             valor_raw = self.ent_alfa.get().strip()
             angulo = float(valor_raw)
@@ -235,33 +265,78 @@ class InterfazGrafica:
                 )
 
             # Generar mensaje en texto plano
-            mensaje = f"ALFA:{alfa_deg}"
+            mensaje = f"ALFA:{alfa_deg:.1f}"
 
-            # Transmisión vía socket UDP hacia el ESP32
+            # Feedback visual de envío en progreso
+            self.lbl_estado_hw.config(
+                text=f"Estado: Verificando conexión con {self.esp32_ip}:{self.esp32_port}...",
+                foreground="#2980b9"
+            )
+            self.root.update_idletasks()
+
+            # Transmisión y verificación bidireccional vía socket UDP
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(1.2) # Timeout de 1.2 segundos para esperar el ACK del ESP32
             try:
                 sock.sendto(mensaje.encode('utf-8'), (self.esp32_ip, self.esp32_port))
-                # Actualizar el Label de estado indicando despacho exitoso
+
+                # Espera obligatoria del paquete de confirmación (ACK) emitido por el ESP32
+                data, addr = sock.recvfrom(1024)
+                respuesta = data.decode('utf-8').strip()
+
+                if respuesta.startswith("ACK:ALFA:"):
+                    self.lbl_estado_hw.config(
+                        text=f"Estado: Conectado (ESP32 confirmó {respuesta})",
+                        foreground="#27ae60"
+                    )
+                elif respuesta.startswith("NACK:"):
+                    self.lbl_estado_hw.config(
+                        text=f"Estado: Rechazado por ESP32 ({respuesta})",
+                        foreground="#e67e22"
+                    )
+                    messagebox.showwarning(
+                        "Comando Rechazado por Hardware",
+                        f"El ESP32 en {addr[0]} recibió el paquete pero rechazó el comando:\n{respuesta}"
+                    )
+                else:
+                    self.lbl_estado_hw.config(
+                        text=f"Estado: Respuesta desconocida ({respuesta})",
+                        foreground="#e67e22"
+                    )
+            except (socket.timeout, ConnectionResetError):
                 self.lbl_estado_hw.config(
-                    text=f"Estado: Paquete UDP '{mensaje}' despachado exitosamente a {self.esp32_ip}:{self.esp32_port}"
+                    text=f"Estado: Sin respuesta (Timeout / Inaccesible en {self.esp32_ip}:{self.esp32_port})",
+                    foreground="#c0392b"
+                )
+                messagebox.showerror(
+                    "Error de Conexión con Hardware",
+                    f"No se recibió confirmación (ACK) del ESP32 en {self.esp32_ip}:{self.esp32_port}.\n\n"
+                    f"El paquete UDP no pudo ser verificado. Asegúrese de que:\n"
+                    f"1. La dirección IP ({self.esp32_ip}) pertenezca efectivamente al ESP32.\n"
+                    f"2. El ESP32 se encuentre encendido y conectado a la misma red Wi-Fi.\n"
+                    f"3. No existan bloqueos de firewall para tráfico UDP en el puerto {self.esp32_port}."
                 )
             finally:
                 sock.close()
 
         except ValueError as e:
+            self.lbl_estado_hw.config(
+                text="Estado: Parámetros inválidos",
+                foreground="#c0392b"
+            )
             messagebox.showerror(
-                "Error de Hardware",
-                f"El valor de ángulo (α) ingresado es inválido o está fuera del rango físico (0° a 180°).\n\n"
+                "Error de Parámetros de Hardware",
+                f"El valor de ángulo (α) o la dirección IP ingresada no son válidos.\n\n"
                 f"Detalle: {e}"
             )
         except (socket.error, OSError) as e:
             self.lbl_estado_hw.config(
-                text=f"Estado: Error UDP al enviar a {self.esp32_ip}:{self.esp32_port}"
+                text=f"Estado: Error de red ({self.esp32_ip}:{self.esp32_port})",
+                foreground="#c0392b"
             )
             messagebox.showerror(
-                "Error de Comunicación UDP",
-                f"No se pudo despachar el paquete UDP al ESP32 ({self.esp32_ip}:{self.esp32_port}).\n"
-                f"Por favor, configure una dirección IP válida en self.esp32_ip.\n\n"
+                "Error de Socket UDP",
+                f"Fallo de socket de red al intentar comunicar con {self.esp32_ip}:{self.esp32_port}.\n\n"
                 f"Detalle: {e}"
             )
 
@@ -288,6 +363,11 @@ class InterfazGrafica:
                 raise ValueError("La cantidad de armónicas debe ser mayor a 0")
             if muestras <= 0:
                 raise ValueError("La cantidad de muestras debe ser mayor a 0")
+            if armonicas >= muestras / 2:
+                raise ValueError(
+                    f"Por el teorema de Nyquist, la cantidad de armónicas ({armonicas}) "
+                    f"debe ser estrictamente menor a la mitad de las muestras por ciclo ({muestras // 2})."
+                )
                 
             # Actualizar la resolución (cantidad de muestras) antes de generar las señales
             self.analizador.actualizar_muestras(muestras)
@@ -406,7 +486,7 @@ class InterfazGrafica:
             self.ax2.legend(loc="upper right", frameon=True, facecolor='white', framealpha=0.9, fontsize=9)
             self.ax2.grid(True, linestyle='--', alpha=0.7)
             
-            self.fig.tight_layout()
+            # Márgenes estables ya configurados fijos con subplots_adjust en __init__
             self.canvas.draw()
 
         except ValueError as e:

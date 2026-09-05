@@ -45,6 +45,7 @@ portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 volatile float angulo_disparo_deg = 90.0f;  // Ángulo de disparo alfa en grados sexagesimales (0.0° a 180.0°)
 volatile uint32_t angulo_disparo_us = 5000; // Retardo alfa equivalente en microsegundos (calculado automáticamente)
 volatile uint32_t offset_hardware_us = 200; // Compensación de retardo físico del PC817 (200 us por defecto)
+volatile uint32_t last_zc_time = 0;        // Timestamp del último cruce por cero válido (filtro de rebotes)
 
 // Puntero al temporizador de hardware del ESP32
 hw_timer_t * timer = NULL;
@@ -76,7 +77,7 @@ void set_angulo_disparo_deg(float grados) {
     if (us_base > offset_hardware_us) {
         us_final = us_base - offset_hardware_us;
     } else {
-        us_final = us_base + offset_hardware_us;
+        us_final = 10; // Disparo inmediato seguro (evita saltos y no-monotonicidad)
     }
     if (us_final < 10) us_final = 10;
 
@@ -102,6 +103,13 @@ void set_angulo_disparo_deg(float grados) {
  * Detiene el timer anterior, obtiene atómicamente el retardo precalculado y reinicia el timer.
  */
 void IRAM_ATTR zero_cross_isr() {
+    // Filtro temporal antirrebote: ningún cruce legítimo ocurre antes de 7000 us (50 Hz -> 10000 us semiperiodo)
+    uint32_t now = (uint32_t)esp_timer_get_time();
+    if (now - last_zc_time < 7000) {
+        return; // Descartar pico de ruido transitorio
+    }
+    last_zc_time = now;
+
     // 1. Detener el temporizador si estaba corriendo y reiniciar contador a cero
     timerStop(timer);
     timerWrite(timer, 0);
@@ -143,7 +151,7 @@ void IRAM_ATTR timer_isr() {
 
 /**
  * Conecta el ESP32 a la red Wi-Fi e inicializa los servicios de ArduinoOTA y UDP.
- * Se ejecuta al inicio de TaskComunicaciones en el Core 0.
+ * Cuenta con timeout de 15 segundos para no bloquear el sistema si no hay red disponible.
  */
 void setup_red() {
     Serial.println("[Core 0] Iniciando conexión Wi-Fi...");
@@ -152,36 +160,44 @@ void setup_red() {
 
     Serial.print("[Core 0] Conectando a ");
     Serial.print(WIFI_SSID);
-    while (WiFi.status() != WL_CONNECTED) {
+
+    int intentos = 0;
+    const int max_intentos = 30; // 30 * 500 ms = 15 segundos
+    while (WiFi.status() != WL_CONNECTED && intentos < max_intentos) {
         vTaskDelay(pdMS_TO_TICKS(500));
         Serial.print(".");
+        intentos++;
     }
 
-    Serial.println("\n[Core 0] ¡Wi-Fi conectado con éxito!");
-    Serial.print("[Core 0] Dirección IP asignada: ");
-    Serial.println(WiFi.localIP());
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\n[Core 0] ¡Wi-Fi conectado con éxito!");
+        Serial.print("[Core 0] Dirección IP asignada: ");
+        Serial.println(WiFi.localIP());
 
-    // Configuración del servicio ArduinoOTA (Flasheo inalámbrico)
-    ArduinoOTA.setHostname("InverRect-ESP32");
-    ArduinoOTA.onStart([]() {
-        String type = (ArduinoOTA.getCommand() == U_FLASH) ? "sketch" : "filesystem";
-        Serial.println("[OTA] Inicio de actualización: " + type);
-    });
-    ArduinoOTA.onEnd([]() {
-        Serial.println("\n[OTA] Actualización completada con éxito. Reiniciando...");
-    });
-    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-        Serial.printf("[OTA] Progreso: %u%%\r", (progress / (total / 100)));
-    });
-    ArduinoOTA.onError([](ota_error_t error) {
-        Serial.printf("[OTA] Error[%u]\n", error);
-    });
-    ArduinoOTA.begin();
-    Serial.println("[Core 0] Servicio ArduinoOTA inicializado y a la escucha.");
+        // Configuración del servicio ArduinoOTA (Flasheo inalámbrico)
+        ArduinoOTA.setHostname("InverRect-ESP32");
+        ArduinoOTA.onStart([]() {
+            String type = (ArduinoOTA.getCommand() == U_FLASH) ? "sketch" : "filesystem";
+            Serial.println("[OTA] Inicio de actualización: " + type);
+        });
+        ArduinoOTA.onEnd([]() {
+            Serial.println("\n[OTA] Actualización completada con éxito. Reiniciando...");
+        });
+        ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+            Serial.printf("[OTA] Progreso: %u%%\r", (progress / (total / 100)));
+        });
+        ArduinoOTA.onError([](ota_error_t error) {
+            Serial.printf("[OTA] Error[%u]\n", error);
+        });
+        ArduinoOTA.begin();
+        Serial.println("[Core 0] Servicio ArduinoOTA inicializado y a la escucha.");
 
-    // Inicialización del servidor UDP local
-    udp.begin(UDP_PORT);
-    Serial.printf("[Core 0] Servidor UDP a la escucha en el puerto %u.\n", UDP_PORT);
+        // Inicialización del servidor UDP local
+        udp.begin(UDP_PORT);
+        Serial.printf("[Core 0] Servidor UDP a la escucha en el puerto %u.\n", UDP_PORT);
+    } else {
+        Serial.println("\n[Core 0] Aviso: Timeout Wi-Fi (15s). Continuando en modo local/Serial.");
+    }
 }
 
 /**
@@ -195,52 +211,64 @@ void TaskComunicaciones(void *pvParameters) {
     setup_red();
 
     char packetBuffer[64];
+    uint32_t ultimo_reintento_wifi = 0;
+    bool servicios_inicializados = (WiFi.status() == WL_CONNECTED);
 
     for (;;) {
-        // 2. Escucha obligatoria de flasheo inalámbrico OTA en cada iteración
-        ArduinoOTA.handle();
+        // Reconexión automática periódica si se pierde la conexión Wi-Fi
+        if (WiFi.status() != WL_CONNECTED) {
+            servicios_inicializados = false;
+            uint32_t ahora = (uint32_t)millis();
+            if (ahora - ultimo_reintento_wifi > 10000) { // Reintentar cada 10 segundos
+                ultimo_reintento_wifi = ahora;
+                Serial.println("[Core 0] Reintentando conexión Wi-Fi...");
+                WiFi.reconnect();
+            }
+        } else {
+            // Inicializar servicios si nos conectamos tras un timeout previo
+            if (!servicios_inicializados) {
+                Serial.println("\n[Core 0] ¡Wi-Fi conectado con éxito tras reconexión!");
+                Serial.print("[Core 0] Dirección IP asignada: ");
+                Serial.println(WiFi.localIP());
+                ArduinoOTA.begin();
+                udp.begin(UDP_PORT);
+                servicios_inicializados = true;
+            }
 
-        // 3. Lectura y procesamiento de paquetes UDP entrantes
-        int packetSize = udp.parsePacket();
-        if (packetSize > 0) {
-            int len = udp.read(packetBuffer, sizeof(packetBuffer) - 1);
-            if (len > 0) {
-                packetBuffer[len] = '\0';
-                String mensaje = String(packetBuffer);
-                mensaje.trim();
+            // 2. Escucha obligatoria de flasheo inalámbrico OTA en cada iteración
+            ArduinoOTA.handle();
 
-                // El protocolo espera un string con el formato "ALFA:xx.x" (ej. "ALFA:60.5")
-                if (mensaje.startsWith("ALFA:")) {
-                    float alfa = mensaje.substring(5).toFloat();
+            // 3. Lectura y procesamiento de paquetes UDP entrantes
+            int packetSize = udp.parsePacket();
+            if (packetSize > 0) {
+                int len = udp.read(packetBuffer, sizeof(packetBuffer) - 1);
+                if (len > 0) {
+                    packetBuffer[len] = '\0';
+                    String mensaje = String(packetBuffer);
+                    mensaje.trim();
 
-                    // Validar rango físico seguro (0° a 180°)
-                    if (alfa >= 0.0f && alfa <= 180.0f) {
-                        // Calcula microsegundos (50Hz: semiperiodo 180° = 10000 us)
-                        uint32_t us_calculados = (uint32_t)((alfa / 180.0f) * 10000.0f);
+                    // El protocolo espera un string con el formato "ALFA:xx.x" (ej. "ALFA:60.5")
+                    if (mensaje.startsWith("ALFA:")) {
+                        float alfa = mensaje.substring(5).toFloat();
 
-                        // Aplica el offset_hardware_us
-                        uint32_t us_final;
-                        if (us_calculados > offset_hardware_us) {
-                            us_final = us_calculados - offset_hardware_us;
+                        // Validar rango físico seguro (0° a 180°)
+                        if (alfa >= 0.0f && alfa <= 180.0f) {
+                            // Actualización invocando directamente a la función de control
+                            set_angulo_disparo_deg(alfa);
+                            Serial.printf("[Core 0][UDP] Comando aplicado: ALFA = %.1f°\n", alfa);
+
+                            // Responder con acuse de recibo (ACK) al remitente para verificar conexión bidireccional
+                            udp.beginPacket(udp.remoteIP(), udp.remotePort());
+                            udp.printf("ACK:ALFA:%.1f\n", alfa);
+                            udp.endPacket();
                         } else {
-                            us_final = us_calculados + offset_hardware_us;
+                            Serial.printf("[Core 0][UDP] Advertencia: Ángulo fuera de rango (0-180°): %.1f°\n", alfa);
+
+                            // Responder con NACK si el ángulo es inválido
+                            udp.beginPacket(udp.remoteIP(), udp.remotePort());
+                            udp.printf("NACK:OUT_OF_RANGE:%.1f\n", alfa);
+                            udp.endPacket();
                         }
-
-                        // Protección mínima para evitar valores nulos
-                        if (us_final < 10) {
-                            us_final = 10;
-                        }
-
-                        // Actualización atómica y segura de variables globales
-                        portENTER_CRITICAL(&timerMux);
-                        angulo_disparo_deg = alfa;
-                        angulo_disparo_us = us_final;
-                        portEXIT_CRITICAL(&timerMux);
-
-                        Serial.printf("[Core 0][UDP] Comando recibido: ALFA = %.1f° -> Retardo timer: %u us\n",
-                                      alfa, us_final);
-                    } else {
-                        Serial.printf("[Core 0][UDP] Advertencia: Ángulo fuera de rango (0-180°): %.1f°\n", alfa);
                     }
                 }
             }
