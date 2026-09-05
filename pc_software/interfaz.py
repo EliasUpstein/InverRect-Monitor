@@ -1,3 +1,4 @@
+import socket
 import tkinter as tk
 from tkinter import ttk, messagebox
 import numpy as np
@@ -13,28 +14,33 @@ class InterfazGrafica:
     def __init__(self, root):
         self.root = root
         self.root.title("Analizador de Potencia - Electrónica de Potencia")
-        self.root.geometry("1200x820")
+        self.root.geometry("1280x760")
+        self.root.minsize(1100, 680)
         self.root.configure(bg="#f4f6f9")
         
-        # Estilos modernos
+        # Estilos modernos con fuentes más grandes para máxima legibilidad
         style = ttk.Style()
         if "clam" in style.theme_names():
             style.theme_use("clam")
-        style.configure("TLabel", background="#f4f6f9", font=("Segoe UI", 12), foreground="#333333")
+        style.configure("TLabel", background="#f4f6f9", font=("Segoe UI", 11), foreground="#333333")
         style.configure("TLabelframe", background="#f4f6f9", bordercolor="#d1d5db")
-        style.configure("TLabelframe.Label", background="#f4f6f9", font=("Segoe UI", 13, "bold"), foreground="#2c3e50")
-        style.configure("TButton", font=("Segoe UI", 12, "bold"), padding=6, background="#3498db", foreground="white")
+        style.configure("TLabelframe.Label", background="#f4f6f9", font=("Segoe UI", 12, "bold"), foreground="#2c3e50")
+        style.configure("TButton", font=("Segoe UI", 11, "bold"), padding=5, background="#3498db", foreground="white")
         style.map("TButton", background=[("active", "#2980b9")])
         style.configure("TFrame", background="#f4f6f9")
-        style.configure("TCheckbutton", background="#f4f6f9", font=("Segoe UI", 12))
+        style.configure("TCheckbutton", background="#f4f6f9", font=("Segoe UI", 11))
         
-        self.root.option_add("*TCombobox*Listbox.font", ("Segoe UI", 12))
+        self.root.option_add("*TCombobox*Listbox.font", ("Segoe UI", 11))
         
         # Referencia para anotación/cursor flotante al hacer clic
         self.anotacion = None
         
         # Instanciar el modelo matemático
         self.analizador = AnalizadorDePotencia()
+        
+        # Configuración de red para comunicación UDP con el ESP32
+        self.esp32_ip = "192.168.X.X"  # Reemplazar con la dirección IP asignada al ESP32 (ver salida en Monitor Serial)
+        self.esp32_port = 8888          # Puerto UDP local del ESP32
         
         # Opciones de señales (12 opciones según arquitectura y Modelo)
         self.tipos_senal = [
@@ -57,81 +63,98 @@ class InterfazGrafica:
     def crear_widgets(self):
         # --- Panel Izquierdo: Controles ---
         frame_izq = ttk.Frame(self.root)
-        frame_izq.pack(side=tk.LEFT, fill=tk.Y, padx=15, pady=15)
+        frame_izq.pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=10)
 
-        frame_controles = ttk.LabelFrame(frame_izq, text="Parámetros de Entrada", padding="15")
-        frame_controles.pack(fill=tk.X, pady=(0, 15))
+        frame_controles = ttk.LabelFrame(frame_izq, text="Parámetros de Entrada", padding="8")
+        frame_controles.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Label(frame_controles, text="Tipo de Señal:").grid(row=0, column=0, sticky="w", pady=5)
-        self.cb_tipo = ttk.Combobox(frame_controles, values=self.tipos_senal, state="readonly", width=25, font=("Segoe UI", 12))
+        ttk.Label(frame_controles, text="Tipo de Señal:").grid(row=0, column=0, sticky="w", pady=2)
+        self.cb_tipo = ttk.Combobox(frame_controles, values=self.tipos_senal, state="readonly", width=23, font=("Segoe UI", 11))
         self.cb_tipo.current(6) # Por defecto RMOCC
-        self.cb_tipo.grid(row=0, column=1, pady=5)
+        self.cb_tipo.grid(row=0, column=1, columnspan=3, sticky="w", pady=2)
         self.cb_tipo.bind("<<ComboboxSelected>>", self.actualizar_estado_alfa)
 
-        ttk.Label(frame_controles, text="Voltaje Pico (Vp):").grid(row=1, column=0, sticky="w", pady=5)
-        self.ent_vp = ttk.Entry(frame_controles, width=10, font=("Segoe UI", 12))
+        ttk.Label(frame_controles, text="Voltaje Pico (Vp):").grid(row=1, column=0, sticky="w", pady=2)
+        self.ent_vp = ttk.Entry(frame_controles, width=8, font=("Segoe UI", 11))
         self.ent_vp.insert(0, "311")
-        self.ent_vp.grid(row=1, column=1, sticky="w", pady=5)
+        self.ent_vp.grid(row=1, column=1, sticky="w", pady=2)
 
-        ttk.Label(frame_controles, text="Ángulo de Disparo α:").grid(row=2, column=0, sticky="w", pady=5)
+        ttk.Label(frame_controles, text="Ángulo de Disparo α:").grid(row=2, column=0, sticky="w", pady=2)
         frame_alfa = ttk.Frame(frame_controles)
-        frame_alfa.grid(row=2, column=1, sticky="w", pady=5)
-        self.ent_alfa = ttk.Entry(frame_alfa, width=10, font=("Segoe UI", 12))
+        frame_alfa.grid(row=2, column=1, columnspan=3, sticky="w", pady=2)
+        self.ent_alfa = ttk.Entry(frame_alfa, width=8, font=("Segoe UI", 11))
         self.ent_alfa.insert(0, "60")
         self.ent_alfa.pack(side=tk.LEFT)
-        self.cb_unidad_alfa = ttk.Combobox(frame_alfa, values=["Grados", "Radianes"], state="readonly", width=10, font=("Segoe UI", 12))
+        self.cb_unidad_alfa = ttk.Combobox(frame_alfa, values=["Grados", "Radianes"], state="readonly", width=9, font=("Segoe UI", 11))
         self.cb_unidad_alfa.current(0)
-        self.cb_unidad_alfa.pack(side=tk.LEFT, padx=5)
+        self.cb_unidad_alfa.pack(side=tk.LEFT, padx=4)
 
-        ttk.Label(frame_controles, text="Resistencia R (Ω):").grid(row=3, column=0, sticky="w", pady=5)
-        self.ent_carga = ttk.Entry(frame_controles, width=10, font=("Segoe UI", 12))
+        # R y X organizados en la misma fila para optimizar altura con fuentes más grandes
+        ttk.Label(frame_controles, text="Resistencia R (Ω):").grid(row=3, column=0, sticky="w", pady=2)
+        self.ent_carga = ttk.Entry(frame_controles, width=8, font=("Segoe UI", 11))
         self.ent_carga.insert(0, "10")
-        self.ent_carga.grid(row=3, column=1, sticky="w", pady=5)
+        self.ent_carga.grid(row=3, column=1, sticky="w", pady=2)
         
-        ttk.Label(frame_controles, text="Reactancia X (Ω):").grid(row=4, column=0, sticky="w", pady=5)
-        self.ent_reactancia = ttk.Entry(frame_controles, width=10, font=("Segoe UI", 12))
+        ttk.Label(frame_controles, text="Reactancia X (Ω):").grid(row=3, column=2, sticky="w", padx=(8, 2), pady=2)
+        self.ent_reactancia = ttk.Entry(frame_controles, width=8, font=("Segoe UI", 11))
         self.ent_reactancia.insert(0, "0")
-        self.ent_reactancia.grid(row=4, column=1, sticky="w", pady=5)
+        self.ent_reactancia.grid(row=3, column=3, sticky="w", pady=2)
 
-        ttk.Label(frame_controles, text="Cant. de Armónicas:").grid(row=5, column=0, sticky="w", pady=5)
-        self.ent_arm = ttk.Entry(frame_controles, width=10, font=("Segoe UI", 12))
+        # Cant. de Armónicas y Muestras por Ciclo organizados en la misma fila
+        ttk.Label(frame_controles, text="Cant. Armónicas:").grid(row=4, column=0, sticky="w", pady=2)
+        self.ent_arm = ttk.Entry(frame_controles, width=8, font=("Segoe UI", 11))
         self.ent_arm.insert(0, "15")
-        self.ent_arm.grid(row=5, column=1, sticky="w", pady=5)
+        self.ent_arm.grid(row=4, column=1, sticky="w", pady=2)
 
-        ttk.Label(frame_controles, text="Muestras por Ciclo:").grid(row=6, column=0, sticky="w", pady=5)
-        self.ent_muestras = ttk.Entry(frame_controles, width=10, font=("Segoe UI", 12))
+        ttk.Label(frame_controles, text="Muestras / Ciclo:").grid(row=4, column=2, sticky="w", padx=(8, 2), pady=2)
+        self.ent_muestras = ttk.Entry(frame_controles, width=8, font=("Segoe UI", 11))
         self.ent_muestras.insert(0, "256")
-        self.ent_muestras.grid(row=6, column=1, sticky="w", pady=5)
+        self.ent_muestras.grid(row=4, column=3, sticky="w", pady=2)
 
         btn_calcular = ttk.Button(frame_controles, text="Calcular y Graficar", command=self.procesar_datos)
-        btn_calcular.grid(row=7, column=0, columnspan=2, pady=20)
+        btn_calcular.grid(row=5, column=0, columnspan=4, pady=(6, 2))
 
         # --- Controles de Tiempo Real ---
-        frame_tiempo_real = ttk.LabelFrame(frame_izq, text="Actualización en Tiempo Real", padding="10")
-        frame_tiempo_real.pack(fill=tk.X, pady=(0, 15))
+        frame_tiempo_real = ttk.LabelFrame(frame_izq, text="Actualización en Tiempo Real", padding="6")
+        frame_tiempo_real.pack(fill=tk.X, pady=(0, 6))
         
         self.var_tiempo_real = tk.BooleanVar()
         chk_tiempo_real = ttk.Checkbutton(frame_tiempo_real, text="Activar", variable=self.var_tiempo_real, command=self.toggle_tiempo_real)
-        chk_tiempo_real.grid(row=0, column=0, sticky="w", pady=5)
+        chk_tiempo_real.grid(row=0, column=0, sticky="w", pady=2)
         
-        ttk.Label(frame_tiempo_real, text="Refresco (seg):").grid(row=0, column=1, sticky="w", padx=(10, 5), pady=5)
-        self.ent_refresco = ttk.Entry(frame_tiempo_real, width=6, font=("Segoe UI", 12))
+        ttk.Label(frame_tiempo_real, text="Refresco (seg):").grid(row=0, column=1, sticky="w", padx=(8, 4), pady=2)
+        self.ent_refresco = ttk.Entry(frame_tiempo_real, width=5, font=("Segoe UI", 11))
         self.ent_refresco.insert(0, "1.0")
         self.ent_refresco.config(state="disabled")
-        self.ent_refresco.grid(row=0, column=2, sticky="w", pady=5)
+        self.ent_refresco.grid(row=0, column=2, sticky="w", pady=2)
+
+        # --- Control de Hardware (ESP32) ---
+        frame_hw = ttk.LabelFrame(frame_izq, text="Control de Hardware (ESP32)", padding="6")
+        frame_hw.pack(fill=tk.X, pady=(0, 6))
+
+        self.lbl_estado_hw = ttk.Label(frame_hw, text="Estado: Desconectado", font=("Segoe UI", 10, "bold"))
+        self.lbl_estado_hw.pack(anchor="w", pady=(0, 3))
+
+        self.btn_enviar_hw = ttk.Button(
+            frame_hw,
+            text="Enviar Ángulo (α) al Hardware",
+            command=self.enviar_angulo_hardware,
+            padding=4
+        )
+        self.btn_enviar_hw.pack(fill=tk.X)
 
         # --- Resultados en Texto ---
-        frame_resultados = ttk.LabelFrame(frame_izq, text="Resultados", padding="15")
+        frame_resultados = ttk.LabelFrame(frame_izq, text="Resultados", padding="8")
         frame_resultados.pack(fill=tk.BOTH, expand=True)
 
         self.lbl_resultados = tk.StringVar()
         self.lbl_resultados.set("Esperando cálculo...")
-        lbl = ttk.Label(frame_resultados, textvariable=self.lbl_resultados, justify=tk.LEFT, font=("Consolas", 12))
-        lbl.pack(anchor="nw")
+        lbl = ttk.Label(frame_resultados, textvariable=self.lbl_resultados, justify=tk.LEFT, font=("Consolas", 11))
+        lbl.pack(anchor="nw", fill=tk.BOTH, expand=True)
 
         # --- Panel Derecho: Gráficos (Matplotlib) con 2 Subplots ---
         self.frame_grafico = ttk.Frame(self.root)
-        self.frame_grafico.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=15, pady=15)
+        self.frame_grafico.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=12, pady=10)
         
         try:
             plt.style.use('ggplot')
@@ -177,20 +200,81 @@ class InterfazGrafica:
     def actualizar_estado_alfa(self, event=None):
         """Habilita o deshabilita el input de Alfa según la señal seleccionada"""
         idx = self.cb_tipo.current()
-        # Alfa aplica en Cuasi-cuadrada (2), RMMOC (4), RMOCC (6), RTMOC (8) y RTOCC (10)
-        if idx in [2, 4, 6, 8, 10]:
+        # Alfa aplica en Cuasi-cuadrada (2), RMMOC (4), RMOCC (6), RTMOC (8), RTOCC (10)
+        # y Muestras ADC (11) únicamente para envío al hardware (sin injerencia en el gráfico)
+        if idx in [2, 4, 6, 8, 10, 11]:
             self.ent_alfa.config(state="normal")
             self.cb_unidad_alfa.config(state="readonly")
         else:
             self.ent_alfa.config(state="disabled")
             self.cb_unidad_alfa.config(state="disabled")
 
+    def enviar_angulo_hardware(self):
+        """Lee el ángulo alfa de entrada, valida que sea un float seguro entre 0° y 180°,
+        y encola el comando para ser transmitido al microcontrolador ESP32."""
+        try:
+            # 1. Leer el valor actual del campo self.ent_alfa
+            valor_raw = self.ent_alfa.get().strip()
+            angulo = float(valor_raw)
+
+            # Validar que no sea NaN o Infinito
+            if np.isnan(angulo) or np.isinf(angulo):
+                raise ValueError("El valor ingresado no es un número finito válido.")
+
+            # Conversión auxiliar si la unidad seleccionada es Radianes
+            unidad = self.cb_unidad_alfa.get() if hasattr(self, "cb_unidad_alfa") else "Grados"
+            if unidad == "Radianes":
+                alfa_deg = float(np.degrees(angulo))
+            else:
+                alfa_deg = angulo
+
+            # Validar rango físico posible para el disparo (entre 0 y 180 grados)
+            if not (0.0 <= alfa_deg <= 180.0):
+                raise ValueError(
+                    f"El ángulo ({alfa_deg:.2f}°) está fuera del rango físico permitido (0° a 180°)."
+                )
+
+            # Generar mensaje en texto plano
+            mensaje = f"ALFA:{alfa_deg}"
+
+            # Transmisión vía socket UDP hacia el ESP32
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.sendto(mensaje.encode('utf-8'), (self.esp32_ip, self.esp32_port))
+                # Actualizar el Label de estado indicando despacho exitoso
+                self.lbl_estado_hw.config(
+                    text=f"Estado: Paquete UDP '{mensaje}' despachado exitosamente a {self.esp32_ip}:{self.esp32_port}"
+                )
+            finally:
+                sock.close()
+
+        except ValueError as e:
+            messagebox.showerror(
+                "Error de Hardware",
+                f"El valor de ángulo (α) ingresado es inválido o está fuera del rango físico (0° a 180°).\n\n"
+                f"Detalle: {e}"
+            )
+        except (socket.error, OSError) as e:
+            self.lbl_estado_hw.config(
+                text=f"Estado: Error UDP al enviar a {self.esp32_ip}:{self.esp32_port}"
+            )
+            messagebox.showerror(
+                "Error de Comunicación UDP",
+                f"No se pudo despachar el paquete UDP al ESP32 ({self.esp32_ip}:{self.esp32_port}).\n"
+                f"Por favor, configure una dirección IP válida en self.esp32_ip.\n\n"
+                f"Detalle: {e}"
+            )
+
     def procesar_datos(self):
         try:
             # 1. Leer inputs de la interfaz
             idx_senal = self.cb_tipo.current()
             vp = float(self.ent_vp.get())
-            alfa_val = float(self.ent_alfa.get()) if self.ent_alfa.instate(['!disabled']) else 0.0
+            # Para Muestras ADC (11), el ángulo no tiene injerencia en el cálculo matemático ni gráfico
+            if idx_senal in [2, 4, 6, 8, 10]:
+                alfa_val = float(self.ent_alfa.get()) if self.ent_alfa.instate(['!disabled']) else 0.0
+            else:
+                alfa_val = 0.0
             r_carga = float(self.ent_carga.get())
             x_carga = float(self.ent_reactancia.get())
             armonicas = int(self.ent_arm.get())
@@ -283,10 +367,11 @@ class InterfazGrafica:
                     self.ax1.axvline(x=3 * np.pi / 2 + alfa_rad + k, color='#e74c3c', linestyle=':')
                     self.ax1.axvline(x=11 * np.pi / 6 + alfa_rad + k, color='#e74c3c', linestyle=':')
 
-            self.ax1.set_title("Reconstrucción de Ondas en el Tiempo (2 Ciclos)", fontsize=11, fontweight='bold', color='#2c3e50')
-            self.ax1.set_xlabel("Ángulo (radianes)", fontsize=9)
-            self.ax1.set_ylabel("Amplitud", fontsize=9)
-            self.ax1.legend(loc="upper right", frameon=True, facecolor='white', framealpha=0.9, fontsize=8)
+            self.ax1.set_title("Reconstrucción de Ondas en el Tiempo (2 Ciclos)", fontsize=12, fontweight='bold', color='#2c3e50')
+            self.ax1.set_xlabel("Ángulo (radianes)", fontsize=10, fontweight='bold')
+            self.ax1.set_ylabel("Amplitud", fontsize=10, fontweight='bold')
+            self.ax1.tick_params(axis='both', labelsize=9)
+            self.ax1.legend(loc="upper right", frameon=True, facecolor='white', framealpha=0.9, fontsize=9)
             
             ticks = [0, np.pi, 2 * np.pi, 3 * np.pi, 4 * np.pi]
             labels = ['0', 'π', '2π', '3π', '4π']
@@ -307,9 +392,10 @@ class InterfazGrafica:
             self.ax2.bar(n_armonicas + ancho_barra / 2, esp_i, width=ancho_barra, 
                          label='Corriente RMS (A)', color='#e67e22', alpha=0.85)
                          
-            self.ax2.set_title("Espectro Armónico de Fourier (Componentes RMS)", fontsize=11, fontweight='bold', color='#2c3e50')
-            self.ax2.set_xlabel("Número de Armónica (n)", fontsize=9)
-            self.ax2.set_ylabel("Magnitud RMS", fontsize=9)
+            self.ax2.set_title("Espectro Armónico de Fourier (Componentes RMS)", fontsize=12, fontweight='bold', color='#2c3e50')
+            self.ax2.set_xlabel("Número de Armónica (n)", fontsize=10, fontweight='bold')
+            self.ax2.set_ylabel("Magnitud RMS", fontsize=10, fontweight='bold')
+            self.ax2.tick_params(axis='both', labelsize=9)
             
             if armonicas <= 20:
                 self.ax2.set_xticks(n_armonicas)
@@ -317,7 +403,7 @@ class InterfazGrafica:
                 paso = 2 if armonicas <= 40 else 5
                 self.ax2.set_xticks(np.arange(1, armonicas + 1, paso))
                 
-            self.ax2.legend(loc="upper right", frameon=True, facecolor='white', framealpha=0.9, fontsize=8)
+            self.ax2.legend(loc="upper right", frameon=True, facecolor='white', framealpha=0.9, fontsize=9)
             self.ax2.grid(True, linestyle='--', alpha=0.7)
             
             self.fig.tight_layout()
@@ -346,7 +432,8 @@ class InterfazGrafica:
                     xytext=(15, 15),
                     textcoords="offset points",
                     bbox=dict(boxstyle="round", fc="white", ec="gray", alpha=0.9),
-                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0", color="#2c3e50")
+                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0", color="#2c3e50"),
+                    fontsize=10
                 )
             # Anotación para el Subplot 2 (Dominio de la Frecuencia)
             elif event.inaxes == self.ax2:
@@ -357,7 +444,8 @@ class InterfazGrafica:
                     xytext=(15, 15),
                     textcoords="offset points",
                     bbox=dict(boxstyle="round", fc="white", ec="gray", alpha=0.9),
-                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0", color="#2c3e50")
+                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0", color="#2c3e50"),
+                    fontsize=10
                 )
 
             self.canvas.draw_idle()

@@ -1,94 +1,177 @@
-# Analizador de Potencia - Electrónica de Potencia
+# InverRect-Monitor
 
-## Descripción
-Sistema de simulación, análisis y visualización de parámetros eléctricos y de calidad de energía (P, S, Q, D, FP, THD) diseñado para convertidores estáticos de potencia (rectificadores monofásicos y trifásicos, controlados y no controlados, e inversores). 
-
-El núcleo de cálculo realiza el procesamiento de señales mediante correlación estricta de la Serie Trigonométrica de Fourier (sin depender de FFT), lo que le otorga alta precisión y eficiencia para operar en tiempo real o ser embebido en microcontroladores (como ESP32 u otros sistemas de adquisición por ADC).
+**Plataforma Ciberfísica de Simulación, Control HIL y Monitoreo SCADA para Electrónica de Potencia**
 
 ![Interfaz del Analizador de Potencia](assets/captura.png)
 
 ---
 
-## Estructura del Monorepo
-El proyecto está organizado en dos componentes principales:
-- **`pc_software/` (Aplicación de Escritorio - MVC):**
-  - **Modelo ([calculos.py](pc_software/calculos.py)):** Motor matemático puro implementado en NumPy. Genera las formas de onda de tensión, modela la respuesta temporal y armónica para cargas de impedancia compleja ($R$ y $X$), descompone en coeficientes de Fourier y calcula parámetros de potencia según el estándar IEEE 1459.
-  - **Vista ([interfaz.py](pc_software/interfaz.py)):** Interfaz gráfica interactiva desarrollada con Tkinter y Matplotlib. Dispone de controles de entrada, ajuste de unidades (grados/radianes), modo de actualización en tiempo real, cursores interactivos y visualización en doble subplot vertical.
-  - **Controlador ([main.py](pc_software/main.py)):** Punto de entrada y gestión del ciclo de vida de la aplicación.
-- **`esp32_firmware/` (Firmware Embebido - Dual Core):**
-  - Control de tiempo real en Core 1 mediante interrupciones de cruce por cero y Hardware Timer para el disparo de compuerta (TRIAC/Tiristor).
-  - Tarea de comunicaciones y telemetría en Core 0 bajo FreeRTOS.
+## 1. Visión y Propósito del Proyecto
+
+**InverRect-Monitor** es una plataforma integral de ingeniería que fusiona la **simulación matemática de alta precisión** con el **control y monitoreo físico en tiempo real** de convertidores estáticos de potencia (rectificadores controlados y no controlados monofásicos y trifásicos, e inversores).
+
+En el estudio y operación de la electrónica de potencia, existe a menudo una desconexión entre:
+1. **Los modelos analíticos teóricos:** cálculo de potencias bajo condiciones no senoidales, descomposición en series de Fourier, impacto de armónicas en la red y comportamiento de cargas complejas ($R$, $L$, $C$).
+2. **La implementación física de control:** detección precisa del cruce por cero de la red ($50\text{ Hz} / 60\text{ Hz}$), sincronización de microsegundos para el disparo de compuertas (SCR / TRIAC) y aislamiento galvánico de alta tensión.
+
+**InverRect-Monitor** resuelve esta brecha creando un entorno tipo **Hardware-in-the-Loop (HIL) y SCADA**:
+* Permite al usuario **analizar, simular y descomponer armónicamente** 12 topologías de convertidores bajo el estándar internacional **IEEE 1459**.
+* Permite actuar como **consola SCADA de control remoto**, enviando el ángulo de disparo ($\alpha$) en tiempo real vía **Wi-Fi / UDP** hacia un microcontrolador **ESP32** dedicado al control físico de potencia, garantizando sincronismo estricto e inmunidad a retardos de software.
 
 ---
 
-## Tipos de Señales Soportadas
-El analizador cuenta con una biblioteca de 12 señales estandarizadas:
+## 2. Arquitectura Global del Sistema Ciberfísico
 
-1. **0. Senoidal:** Señal senoidal pura $V_p \sin(\theta)$.
-2. **1. Cuadrada:** Onda simétrica bipolar con transiciones abruptas.
-3. **2. Cuasi-cuadrada:** Pulso con muescas regulables mediante el ángulo de disparo $\alpha$.
-4. **3. RMMO:** Rectificador Monofásico de Media Onda no controlado ($V_p \sin(\theta)$ en $[0, \pi)$ y $0$ en $[\pi, 2\pi)$).
-5. **4. RMMOC:** Rectificador Monofásico de Media Onda Controlado ($0$ en $[0, \alpha)$, $V_p \sin(\theta)$ en $[\alpha, \pi)$ y $0$ en $[\pi, 2\pi)$).
-6. **5. RMOC:** Rectificador Monofásico de Onda Completa no controlado ($|V_p \sin(\theta)|$).
-7. **6. RMOCC:** Rectificador Monofásico de Onda Completa Controlado (puente de tiristores con control de fase $\alpha$).
-8. **7. RTMO:** Rectificador Trifásico de Media Onda no controlado (conmutación natural de las 3 fases en $\pi/6$).
-9. **8. RTMOC:** Rectificador Trifásico de Media Onda Controlado (retardo $\alpha$ desde el punto de conmutación natural en $\pi/6$).
-10. **9. RTOC:** Rectificador Trifásico de Onda Completa / Puente de Graetz de 6 pulsos (envolvente máxima de las tensiones de línea compuestas).
-11. **10. RTOCC:** Rectificador Trifásico de Onda Completa Controlado (puente de 6 tiristores con retardo $\alpha$ desde la conmutación natural de las líneas).
-12. **11. Muestras ADC (Simuladas):** Simulación de entrada analógica con ruido gaussiano añadido, preparada para contrastar algoritmos de filtrado e instrumentación.
+El sistema opera mediante una división estricta entre la **estación de supervisión de alto nivel (PC)** y el **nodo de control de potencia en tiempo real (ESP32)**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      ESTACIÓN DE SUPERVISIÓN (PC)                           │
+│                                                                             │
+│   ┌─────────────────────┐   ┌────────────────────────┐   ┌──────────────┐   │
+│   │     calculos.py     │◄─►│      interfaz.py       │◄─►│   main.py    │   │
+│   │ (NumPy/IEEE 1459/SF)│   │(Tkinter/Matplotlib/UDP)│   │ (Controller) │   │
+│   └─────────────────────┘   └───────────┬────────────┘   └──────────────┘   │
+└─────────────────────────────────────────┼───────────────────────────────────┘
+                                          │ Datagramas UDP ("ALFA:xx.x")
+                                          │ Wi-Fi 802.11 (Puerto 8888)
+                                          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   NODO DE CONTROL EN TIEMPO REAL (ESP32)                    │
+│                                                                             │
+│   ┌─────────────────────────────────────┐   ┌───────────────────────────┐   │
+│   │               CORE 0                │   │          CORE 1           │   │
+│   │   • Tarea FreeRTOS Comunicaciones   │   │   • ISR Cruce por Cero    │   │
+│   │   • Servidor UDP & ArduinoOTA       │◄─►│   • Hardware Timer (1 MHz)│   │
+│   │   • Sincronización atómica (MUX)    │   │   • Pulso de compuerta    │   │
+│   └─────────────────────────────────────┘   └─────────────┬─────────────┘   │
+└───────────────────────────────────────────────────────────┼─────────────────┘
+                                                            │
+                      ┌─────────────────────────────────────┴─────────────┐
+                      ▼                                                   ▼
+            ┌───────────────────┐                               ┌───────────────────┐
+            │  ENTRADA DIGITAL  │                               │  SALIDA DIGITAL   │
+            │  GPIO 18 (ZC)     │                               │  GPIO 19 (Gate)   │
+            └─────────▲─────────┘                               └─────────┬─────────┘
+                      │                                                   │
+                      │ Pulso 50 Hz                                       │ Pulso 50 µs
+            ┌─────────┴─────────┐                               ┌─────────┴─────────┐
+            │ Optoacoplador ZC  │                               │ Driver Opto-TRIAC │
+            │      (PC817)      │                               │     (MOC3021)     │
+            └─────────▲─────────┘                               └─────────┬─────────┘
+                      │                                                   │
+     Red Eléctrica ───┴───────────────── Circuito de Potencia ────────────┴──► Carga
+     (220V CA / 50 Hz)                   (Tiristores SCR / TRIAC)              (R-L-C)
+```
 
 ---
 
-## Capacidades y Cálculos Implementados
-- **Parámetros Estadísticos de Señal:** Tensión y corriente pico, mínima, media y eficaz ($V_{\max}, V_{\min}, V_{\text{avg}}, V_{\text{rms}}, I_{\max}, I_{\min}, I_{\text{avg}}, I_{\text{rms}}$).
-- **Potencias según IEEE 1459:**
-  - Potencia Aparente ($S$).
-  - Potencia Activa ($P$).
-  - Potencia Reactiva Fundamental ($Q$).
-  - Potencia de Distorsión armónica ($D$).
-  - Factor de Potencia total ($FP = P/S$).
-- **Distorsión Armónica Total (THD):**
-  - $\text{THD}_V$ (Tensión) y $\text{THD}_I$ (Corriente) con algoritmos protegidos contra divisiones por cero o ruido de punto flotante en ausencia de fundamental.
-- **Modelado de Impedancias Complejas:**
-  - Carga puramente resistiva ($X = 0\,\Omega$).
-  - Carga inductiva ($X > 0\,\Omega$, con $X_n = nX$).
-  - Carga capacitiva ($X < 0\,\Omega$, con $X_n = X/n$).
-- **Espectro Armónico de Fourier:** Extracción y graficado de las amplitudes eficaces (RMS) de cada armónica individual ($n = 1 \dots N$).
-- **Visualización Doble (Subplots Matplotlib):**
-  - **Subplot Superior:** Reconstrucción temporal de tensión y corriente (escalada dinámicamente) para 2 ciclos completos, con líneas verticales de referencia para los instantes de disparo $\alpha$.
-  - **Subplot Inferior:** Espectro de barras lado a lado comparando las componentes armónicas RMS de tensión y corriente por orden armónico.
-- **Cursores Interactivos y Anotaciones al Clic:**
-  - Inspección dinámica de valores haciendo clic sobre cualquiera de los dos gráficos.
-  - En el dominio temporal: Muestra el ángulo exacto ($\text{rad}$) y la amplitud correspondiente ($\text{V}$ o $\text{A}$).
-  - En el espectro armónico: Identifica el número de armónica ($n$) y su magnitud eficaz ($\text{RMS}$).
-  - Etiquetas flotantes estilizadas con directriz y eliminación automática del punto anterior para evitar superposiciones, sincronizadas con el bucle de actualización en tiempo real.
-- **Modo en Tiempo Real:** Bucle configurable en segundos para simulación continua o monitoreo de variables en vivo.
+## 3. Estructura del Monorepo y Documentación Detallada
+
+El proyecto está organizado de forma modular. Cada subsistema cuenta con su documentación técnica exhaustiva:
+
+```
+InverRect-Monitor/
+├── pc_software/             # Software de PC: Analizador matemático y panel SCADA
+│   ├── calculos.py          # Modelo: Síntesis de ondas, Fourier y cálculo IEEE 1459
+│   ├── interfaz.py          # Vista: Interfaz gráfica industrial Tkinter + cliente UDP
+│   ├── main.py              # Controlador: Ciclo de vida de la aplicación
+│   └── README.md            # 📖 Documentación técnica completa del software de PC
+│
+├── esp32_firmware/          # Firmware embebido para el microcontrolador ESP32
+│   ├── main.cpp             # Firmware Dual-Core (FreeRTOS, Hardware Timer, Wi-Fi, UDP, OTA)
+│   └── README.md            # 📖 Documentación técnica de hardware, pines y firmware
+│
+├── assets/                  # Diagramas y capturas de pantalla
+├── .gitignore               # Filtros de Git para entornos Python y compilaciones C++
+└── README.md                # 📖 Visión general del proyecto (este archivo)
+```
+
+* 👉 **[Documentación del Software de PC (`pc_software/README.md`)](pc_software/README.md):** Contiene la explicación de los cálculos matemáticos (Fourier, impedancias complejas $R$-$X$, formulación IEEE 1459), descripción de las 12 señales simuladas, guía de la interfaz gráfica y configuración del cliente UDP.
+* 👉 **[Documentación del Firmware ESP32 (`esp32_firmware/README.md`)](esp32_firmware/README.md):** Contiene el diagrama de conexionado eléctrico, pinout (GPIO 18 y 19), configuración de FreeRTOS, actualización inalámbrica vía ArduinoOTA y sincronización atómica con spinlocks.
 
 ---
 
-## Instalación y Uso
+## 4. Características Principales
 
-1. **Clonar el repositorio:**
-   ```bash
-   git clone https://github.com/EliasUpstein/InverRect-Monitor.git
-   cd InverRect-Monitor
-   ```
+### 🔬 Análisis Matemático y Procesamiento de Señales
+* **Correlación Trigonométrica de Fourier (sin FFT):** Cálculo exacto de coeficientes ($a_n, b_n$) mediante integración numérica en el dominio temporal discreto. Evita problemas de *picket-fence* y dispersión espectral (*spectral leakage*) propios de la FFT en señales no periódicas o truncadas.
+* **Norma IEEE 1459:** Computa potencia activa ($P$), aparente ($S$), reactiva fundamental ($Q$), distorsión armónica ($D$), factor de potencia ($FP = P/S$) y distorsión armónica total de tensión y corriente ($\text{THD}_V, \text{THD}_I$).
+* **Modelado de Impedancias Complejas:** Respuesta dinámica de corriente considerando armónica fundamental y armónicas superiores ($X_n = nX$ para cargas inductivas y $X_n = X/n$ para capacitivas).
+* **Biblioteca de 12 Topologías:** Senoidal pura, cuadrada, cuasi-cuadrada, rectificadores monofásicos y trifásicos (media onda y onda completa, controlados y no controlados) y simulación de entrada analógica ADC con ruido gaussiano.
 
-2. **Crear y activar un entorno virtual (recomendado):**
-   ```bash
-   python -m venv venv
-   # En Windows:
-   venv\Scripts\activate
-   # En Linux/Mac:
-   source venv/bin/activate
-   ```
+### 🖥️ Interfaz Gráfica SCADA de Alta Legibilidad
+* **Diseño Industrial:** Optimizado para pantallas industriales y monitores con escalado DPI (hasta 1080p con 125% DPI scaling).
+* **Visualización en Dos Subplots:**
+  * Dominio del tiempo: tensión y corriente superpuestas en 2 ciclos con marcación del ángulo $\alpha$.
+  * Dominio de la frecuencia: espectro de barras lado a lado de armónicas RMS de tensión y corriente.
+* **Cursores Interactivos:** Inspección de valores puntuales al hacer clic sobre cualquier punto de las curvas.
+* **Modo en Tiempo Real:** Bucle de simulación y refresco continuo configurable en segundos.
 
-3. **Instalar dependencias:**
-   ```bash
-   pip install numpy matplotlib
-   ```
+### ⚡ Control de Hardware Físico en Tiempo Real
+* **Microsegundos de Precisión:** El ESP32 ejecuta la sincronización de cruce por cero y el temporizador de hardware en el Core 1 con código en `IRAM`, asegurando un disparo libre de jitter.
+* **Enlace Inalámbrico Bidireccional:** El operador ingresa el ángulo en la PC y un cliente UDP transmite la trama `"ALFA:xx.x"` al ESP32 a través de Wi-Fi.
+* **Protección de Seguridad Industrial:** Validación automática en la interfaz de usuario que limita el ángulo de disparo estrictamente al rango seguro $0.0^\circ \le \alpha \le 180.0^\circ$, bloqueando valores fuera de rango para prevenir daños en los semiconductores.
+* **Flasheo Inalámbrico (OTA):** Soporte para reprogramar el firmware del ESP32 a distancia mientras se encuentra instalado en el banco de pruebas.
 
-4. **Ejecutar la aplicación:**
-   ```bash
-   python pc_software/main.py
-   ```
+---
+
+## 5. Modos de Operación
+
+El sistema puede utilizarse en tres modalidades operativas:
+
+1. **Modo Simulación Pura (Educativo / Diseño):**
+   * Se selecciona cualquiera de las topologías de convertidor (índices 0 a 10).
+   * Se ajusta la amplitud de tensión, el ángulo de disparo teórico $\alpha$ y los valores de $R$ y $X$.
+   * La aplicación reconstruye las ondas analíticas y calcula inmediatamente todos los parámetros de calidad de energía y el espectro armónico.
+2. **Modo Hardware-in-the-Loop (HIL) y Control Remoto:**
+   * La aplicación de PC se conecta al ESP32 ingresando su dirección IP en la sección de control de hardware.
+   * Al modificar $\alpha$ y presionar **"Enviar Ángulo (α) al Hardware"**, el ESP32 actualiza instantáneamente el retardo de compuerta en el circuito de tiristores real.
+   * Permite contrastar la respuesta teórica calculada en la PC contra las mediciones en osciloscopio tomadas sobre el convertidor físico.
+3. **Modo Instrumentación / Telemetría ADC:**
+   * Seleccionando la señal `11. Muestras ADC (Simuladas)`, el sistema evalúa señales analógicas adquiridas con componentes estocásticos de ruido.
+   * Permite continuar despachando órdenes de hardware al ESP32 manteniendo independiente el análisis de la señal capturada.
+
+---
+
+## 6. Puesta en Marcha Rápida (Quickstart)
+
+### Paso 1: Clonar el Repositorio
+```bash
+git clone https://github.com/EliasUpstein/InverRect-Monitor.git
+cd InverRect-Monitor
+```
+
+### Paso 2: Configurar el Entorno Python
+```bash
+# Crear entorno virtual
+python -m venv venv
+
+# Activar entorno virtual
+# En Windows:
+venv\Scripts\activate
+# En Linux/macOS:
+source venv/bin/activate
+
+# Instalar dependencias
+pip install numpy matplotlib
+```
+
+### Paso 3: Ejecutar la Interfaz de PC
+```bash
+python pc_software/main.py
+```
+
+### Paso 4 (Opcional): Cargar el Firmware al ESP32
+1. Abrir la carpeta `esp32_firmware/` en PlatformIO o Arduino IDE.
+2. Configurar `WIFI_SSID` y `WIFI_PASSWORD` en `esp32_firmware/main.cpp`.
+3. Flashear el microcontrolador y observar la IP en el Monitor Serie (115200 bps).
+4. Configurar la IP en `pc_software/interfaz.py` para habilitar el control inalámbrico.
+
+---
+
+## 7. Referencias Normativas y Bibliográficas
+* **IEEE Std 1459-2010:** *IEEE Standard Definitions for the Measurement of Electric Power Quantities Under Sinusoidal, Nonsinusoidal, Balanced, or Unbalanced Conditions*.
+* **Mohan, Undeland, Robbins:** *Power Electronics: Converters, Applications, and Design*, John Wiley & Sons.
+* **Rashid, Muhammad H.:** *Power Electronics Handbook*, Academic Press.
+* **Espressif Systems:** *ESP32 Technical Reference Manual & FreeRTOS Architecture*.
