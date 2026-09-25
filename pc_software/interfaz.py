@@ -62,6 +62,12 @@ class InterfazGrafica:
             "11. Muestras ADC (Simuladas)"
         ]
         
+        # Variables de control para las líneas de referencia
+        self.var_vavg = tk.BooleanVar(value=False)
+        self.var_vrms = tk.BooleanVar(value=False)
+        self.var_iavg = tk.BooleanVar(value=False)
+        self.var_irms = tk.BooleanVar(value=False)
+        
         self.crear_widgets()
 
     def crear_widgets(self):
@@ -117,6 +123,24 @@ class InterfazGrafica:
 
         btn_calcular = ttk.Button(frame_controles, text="Calcular y Graficar", command=self.procesar_datos)
         btn_calcular.grid(row=5, column=0, columnspan=4, pady=(6, 2))
+
+        # --- Selector de Líneas de Referencia (AVG / RMS) mediante Checkboxes ---
+        frame_ref = ttk.LabelFrame(frame_izq, text="Líneas de Referencia (AVG / RMS)", padding="6")
+        frame_ref.pack(fill=tk.X, pady=(0, 6))
+
+        # Tensión (Fila 0)
+        ttk.Label(frame_ref, text="Tensión:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w", padx=(2, 8), pady=2)
+        chk_vavg = ttk.Checkbutton(frame_ref, text="Vavg", variable=self.var_vavg, command=self.procesar_datos)
+        chk_vavg.grid(row=0, column=1, sticky="w", padx=(0, 10), pady=2)
+        chk_vrms = ttk.Checkbutton(frame_ref, text="Vrms", variable=self.var_vrms, command=self.procesar_datos)
+        chk_vrms.grid(row=0, column=2, sticky="w", pady=2)
+
+        # Corriente (Fila 1)
+        ttk.Label(frame_ref, text="Corriente:", font=("Segoe UI", 10, "bold")).grid(row=1, column=0, sticky="w", padx=(2, 8), pady=2)
+        chk_iavg = ttk.Checkbutton(frame_ref, text="Iavg", variable=self.var_iavg, command=self.procesar_datos)
+        chk_iavg.grid(row=1, column=1, sticky="w", padx=(0, 10), pady=2)
+        chk_irms = ttk.Checkbutton(frame_ref, text="Irms", variable=self.var_irms, command=self.procesar_datos)
+        chk_irms.grid(row=1, column=2, sticky="w", pady=2)
 
         # --- Controles de Tiempo Real ---
         frame_tiempo_real = ttk.LabelFrame(frame_izq, text="Actualización en Tiempo Real", padding="6")
@@ -447,11 +471,68 @@ class InterfazGrafica:
                     self.ax1.axvline(x=3 * np.pi / 2 + alfa_rad + k, color='#e74c3c', linestyle=':')
                     self.ax1.axvline(x=11 * np.pi / 6 + alfa_rad + k, color='#e74c3c', linestyle=':')
 
+            # Dibujar líneas de referencia puntuada tenue para Vavg, Vrms, Iavg, Irms según checkboxes
+            dibujar_vavg = self.var_vavg.get() if hasattr(self, 'var_vavg') else False
+            dibujar_vrms = self.var_vrms.get() if hasattr(self, 'var_vrms') else False
+            dibujar_iavg = self.var_iavg.get() if hasattr(self, 'var_iavg') else False
+            dibujar_irms = self.var_irms.get() if hasattr(self, 'var_irms') else False
+
+            if dibujar_vavg:
+                self.ax1.axhline(
+                    y=res['Vavg'],
+                    color='#16a085',
+                    linestyle=':',
+                    linewidth=1.4,
+                    alpha=0.75,
+                    label=f"Vavg: {res['Vavg']:.2f} V"
+                )
+
+            if dibujar_vrms:
+                self.ax1.axhline(
+                    y=res['Vrms'],
+                    color='#8e44ad',
+                    linestyle=':',
+                    linewidth=1.4,
+                    alpha=0.75,
+                    label=f"Vrms: {res['Vrms']:.2f} V"
+                )
+
+            if dibujar_iavg:
+                y_iavg = res['Iavg'] * factor_escala
+                lbl_iavg = f"Iavg: {res['Iavg']:.2f} A"
+                if factor_escala != 1.0:
+                    lbl_iavg += f" (x{factor_escala:.1f})"
+                self.ax1.axhline(
+                    y=y_iavg,
+                    color='#d35400',
+                    linestyle=':',
+                    linewidth=1.4,
+                    alpha=0.75,
+                    label=lbl_iavg
+                )
+
+            if dibujar_irms:
+                y_irms = res['Irms'] * factor_escala
+                lbl_irms = f"Irms: {res['Irms']:.2f} A"
+                if factor_escala != 1.0:
+                    lbl_irms += f" (x{factor_escala:.1f})"
+                self.ax1.axhline(
+                    y=y_irms,
+                    color='#c0392b',
+                    linestyle=':',
+                    linewidth=1.4,
+                    alpha=0.75,
+                    label=lbl_irms
+                )
+
             self.ax1.set_title("Reconstrucción de Ondas en el Tiempo (2 Ciclos)", fontsize=12, fontweight='bold', color='#2c3e50')
             self.ax1.set_xlabel("Ángulo (radianes)", fontsize=10, fontweight='bold')
             self.ax1.set_ylabel("Amplitud", fontsize=10, fontweight='bold')
             self.ax1.tick_params(axis='both', labelsize=9)
-            self.ax1.legend(loc="upper right", frameon=True, facecolor='white', framealpha=0.9, fontsize=9)
+            
+            handles, labels = self.ax1.get_legend_handles_labels()
+            ncol = 2 if len(labels) > 4 else 1
+            self.ax1.legend(loc="upper right", frameon=True, facecolor='white', framealpha=0.9, fontsize=8.5, ncol=ncol)
             
             ticks = [0, np.pi, 2 * np.pi, 3 * np.pi, 4 * np.pi]
             labels = ['0', 'π', '2π', '3π', '4π']

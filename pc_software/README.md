@@ -26,11 +26,12 @@ pc_software/
 * **Diseño SCADA de Alta Legibilidad:** Estilo moderno `clam` adaptado para monitores industriales y de laboratorio (optimizado para resoluciones desde $1366 \times 768$ hasta 1080p con escalado).
 * **Bloques Funcionales:**
   1. **Parámetros de Entrada:** Configuración de topología de señal, tensión pico ($V_p$), ángulo de disparo ($\alpha$ en grados o radianes), carga ($R$ y $X$), armónicas a calcular y muestras por ciclo. Incluye verificación estricta del **Teorema de Nyquist** ($N_{\text{arm}} < N_{\text{muestras}}/2$) para impedir aliasing espectral.
-  2. **Actualización en Tiempo Real:** Bucle configurable con temporizador cancelable activamente (`self.timer_id`) al desactivar el checkbox o cerrar la aplicación, evitando acumulación de procesos concurrentes.
-  3. **Control de Hardware (ESP32):** Campo de entrada interactivo para configurar la IP del ESP32 dinámicamente (`self.ent_esp32_ip`), visualizador de estado con código de color (verde: conectado, rojo: timeout/error, azul: enviando) y botón de despacho.
-  4. **Resultados Numéricos:** Panel de métricas en fuente monoespaciada (`Consolas 11`) con visualización completa sin recortes.
+  2. **Líneas de Referencia (AVG / RMS):** Selectores interactivos tipo checkbox organizados por magnitud (Tensión: $V_{\text{avg}}$, $V_{\text{rms}}$; Corriente: $I_{\text{avg}}$, $I_{\text{rms}}$) que permiten superponer sobre el oscilograma temporal líneas punteadas tenues de manera independiente con un solo clic.
+  3. **Actualización en Tiempo Real:** Bucle configurable con temporizador cancelable activamente (`self.timer_id`) al desactivar el checkbox o cerrar la aplicación, evitando acumulación de procesos concurrentes.
+  4. **Control de Hardware (ESP32):** Campo de entrada interactivo para configurar la IP del ESP32 dinámicamente (`self.ent_esp32_ip`), visualizador de estado con código de color (verde: conectado, rojo: timeout/error, azul: enviando) y botón de despacho.
+  5. **Resultados Numéricos:** Panel de métricas en fuente monoespaciada (`Consolas 11`) con visualización completa sin recortes.
 * **Gráficos Interactivos (Matplotlib):**
-  * **Subplot 1 (Tiempo):** Reconstrucción de ondas de tensión y corriente en 2 ciclos completos, con marcado de líneas de corte de fase $\alpha$.
+  * **Subplot 1 (Tiempo):** Reconstrucción de ondas de tensión y corriente en 2 ciclos completos, marcado de líneas de corte de fase $\alpha$, y superposición de líneas horizontales punteadas tenues para $V_{\text{avg}}$, $V_{\text{rms}}$, $I_{\text{avg}}$ e $I_{\text{rms}}$ con leyenda adaptativa en dos columnas y escalado proporcional a la forma de onda de corriente.
   * **Subplot 2 (Frecuencia):** Espectro de barras comparativo de las componentes armónicas RMS de tensión y corriente.
   * **Estabilidad Visual:** Configuración de márgenes fijos mediante `subplots_adjust()` en la inicialización, evitando saltos de escala y recálculos innecesarios de `tight_layout()`.
   * **Cursores y Anotaciones por Clic:** Inspección dinámica de amplitud, ángulo y armónicas al hacer clic en los gráficos.
