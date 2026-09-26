@@ -268,28 +268,34 @@ class InterfazGrafica:
             self.esp32_ip = ip_ingresada
 
             # 1. Leer el valor actual del campo self.ent_alfa
-            valor_raw = self.ent_alfa.get().strip()
-            angulo = float(valor_raw)
+            valor_raw = self.ent_alfa.get().strip() if hasattr(self, 'ent_alfa') else ""
+            idx_tipo = self.cb_tipo.current() if hasattr(self, 'cb_tipo') else 0
 
-            # Validar que no sea NaN o Infinito
-            if np.isnan(angulo) or np.isinf(angulo):
-                raise ValueError("El valor ingresado no es un número finito válido.")
-
-            # Conversión auxiliar si la unidad seleccionada es Radianes
-            unidad = self.cb_unidad_alfa.get() if hasattr(self, "cb_unidad_alfa") else "Grados"
-            if unidad == "Radianes":
-                alfa_deg = float(np.degrees(angulo))
+            # Si se seleccionó "11. Muestras ADC" o se ingresó "ADC", enviar comando de modo potenciómetro
+            if valor_raw.upper() == "ADC" or (idx_tipo == 11 and (valor_raw.upper() == "ADC" or not valor_raw)):
+                mensaje = "ALFA:ADC"
             else:
-                alfa_deg = angulo
+                angulo = float(valor_raw)
 
-            # Validar rango físico posible para el disparo (entre 0 y 180 grados)
-            if not (0.0 <= alfa_deg <= 180.0):
-                raise ValueError(
-                    f"El ángulo ({alfa_deg:.2f}°) está fuera del rango físico permitido (0° a 180°)."
-                )
+                # Validar que no sea NaN o Infinito
+                if np.isnan(angulo) or np.isinf(angulo):
+                    raise ValueError("El valor ingresado no es un número finito válido.")
 
-            # Generar mensaje en texto plano
-            mensaje = f"ALFA:{alfa_deg:.1f}"
+                # Conversión auxiliar si la unidad seleccionada es Radianes
+                unidad = self.cb_unidad_alfa.get() if hasattr(self, "cb_unidad_alfa") else "Grados"
+                if unidad == "Radianes":
+                    alfa_deg = float(np.degrees(angulo))
+                else:
+                    alfa_deg = angulo
+
+                # Validar rango físico posible para el disparo (entre 0 y 180 grados)
+                if not (0.0 <= alfa_deg <= 180.0):
+                    raise ValueError(
+                        f"El ángulo ({alfa_deg:.2f}°) está fuera del rango físico permitido (0° a 180°)."
+                    )
+
+                # Generar mensaje en texto plano
+                mensaje = f"ALFA:{alfa_deg:.1f}"
 
             # Feedback visual de envío en progreso
             self.lbl_estado_hw.config(
@@ -308,7 +314,7 @@ class InterfazGrafica:
                 data, addr = sock.recvfrom(1024)
                 respuesta = data.decode('utf-8').strip()
 
-                if respuesta.startswith("ACK:ALFA:"):
+                if respuesta.startswith("ACK:ALFA:") or respuesta.startswith("ACK:MODO:"):
                     self.lbl_estado_hw.config(
                         text=f"Estado: Conectado (ESP32 confirmó {respuesta})",
                         foreground="#27ae60"

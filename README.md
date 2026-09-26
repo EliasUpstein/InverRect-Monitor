@@ -79,7 +79,7 @@ InverRect-Monitor/
 │   └── README.md            # 📖 Documentación técnica completa del software de PC
 │
 ├── esp32_firmware/          # Firmware embebido para el microcontrolador ESP32
-│   ├── main.cpp             # Firmware Dual-Core (FreeRTOS, Hardware Timer, Wi-Fi, UDP, OTA)
+│   ├── esp32_firmware.ino   # Firmware Dual-Core compatible con Arduino IDE (FreeRTOS, ZCD, ADC, UDP, OTA)
 │   └── README.md            # 📖 Documentación técnica de hardware, pines y firmware
 │
 ├── assets/                  # Diagramas y capturas de pantalla
