@@ -16,6 +16,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Archivos temporales de LTspice y KiCad
+*.raw
+.history/
+
 # PlatformIO & C++ / ESP32 Build artifacts
 .pio/
 .pioenvs/
