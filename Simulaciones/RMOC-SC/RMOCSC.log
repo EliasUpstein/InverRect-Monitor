@@ -1,0 +1,18 @@
+LTspice 24.1.9 for Windows
+Circuit: C:\Users\Elias Upstein\Desktop\Eli\Universidad\Ingeniería Electrónica\Quinto Nivel\Electrónica de Potencia\Propios\Proyecto 2C\Simulaciones\RMOC-SC\RMOCSC.net
+Start Time: Thu Oct  1 00:32:09 2026
+solver = Normal
+Maximum thread count: 16
+tnom = 27
+temp = 27
+method = trap
+Direct Newton iteration for .op point succeeded.
+Total elapsed time: 2.250 seconds.
+
+Files loaded:
+C:\Users\Elias Upstein\Desktop\Eli\Universidad\Ingeniería Electrónica\Quinto Nivel\Electrónica de Potencia\Propios\Proyecto 2C\Simulaciones\RMOC-SC\RMOCSC.net
+C:\Users\Elias Upstein\AppData\Local\LTspice\lib\cmp\standard.dio
+C:\Users\Elias Upstein\Desktop\Eli\Universidad\Ingeniería Electrónica\Quinto Nivel\Electrónica de Potencia\Propios\Proyecto 2C\Simulaciones\RMOC-SC\RMOC-SC_models.sub
+C:\Users\Elias Upstein\Desktop\Eli\Universidad\Ingeniería Electrónica\Quinto Nivel\Electrónica de Potencia\Propios\Proyecto 2C\Simulaciones\RMOC-SC\ACS712.lib
+C:\Users\Elias Upstein\AppData\Local\LTspice\lib\sub\PC817.sub
+

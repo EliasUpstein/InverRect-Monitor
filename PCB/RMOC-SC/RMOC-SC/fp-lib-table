@@ -1,0 +1,5 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "WX-DC12003") (type "KiCad") (uri "C:/Users/Elias Upstein/Desktop/Eli/Universidad/Ingeniería Electrónica/Quinto Nivel/Electrónica de Potencia/Propios/Proyecto 2C/PCB/Libraries/WX-DC12003_Kicad-main/WX-DC12003.pretty") (options "") (descr ""))
+	(lib (name "ESP32-DEVKITV1-30PIN") (type "KiCad") (uri "C:/Users/Elias Upstein/Desktop/Eli/Universidad/Ingeniería Electrónica/Quinto Nivel/Electrónica de Potencia/Propios/Proyecto 2C/PCB/Libraries/ESP32-DEVKITV1-30PIN.pretty") (options "") (descr ""))
+)
