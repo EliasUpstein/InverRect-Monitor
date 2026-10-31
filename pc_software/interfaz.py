@@ -59,7 +59,7 @@ class InterfazGrafica:
             "8. RTMOC",
             "9. RTOC",
             "10. RTOCC",
-            "11. Muestras ADC (Simuladas)"
+            "11. Muestras ADC"
         ]
         
         # Variables de control para las líneas de referencia
@@ -254,10 +254,10 @@ class InterfazGrafica:
                 messagebox.showwarning("Error de Formato", "Por favor ingresa un número numérico válido para los segundos de refresco.")
 
     def actualizar_estado_alfa(self, event=None):
-        """Habilita o deshabilita el input de Alfa y sincroniza el modo de onda sugerido según la señal seleccionada"""
+        """Habilita o deshabilita los campos según la señal seleccionada y sincroniza el modo de onda sugerido"""
         idx = self.cb_tipo.current()
         # Alfa aplica en Cuasi-cuadrada (2), RMMOC (4), RMOCC (6), RTMOC (8), RTOCC (10)
-        # y Muestras ADC (11) únicamente para envío al hardware (sin injerencia en el gráfico)
+        # y Muestras ADC (11) para envío al hardware
         if idx in [2, 4, 6, 8, 10, 11]:
             self.ent_alfa.config(state="normal")
             self.cb_unidad_alfa.config(state="readonly")
@@ -265,12 +265,76 @@ class InterfazGrafica:
             self.ent_alfa.config(state="disabled")
             self.cb_unidad_alfa.config(state="disabled")
 
+        # En modo "11. Muestras ADC", V e I se miden directamente de los pines D35 y D34 del ESP32
+        if idx == 11:
+            self.ent_vp.config(state="disabled")
+            self.ent_carga.config(state="disabled")
+            self.ent_reactancia.config(state="disabled")
+        else:
+            self.ent_vp.config(state="normal")
+            self.ent_carga.config(state="normal")
+            self.ent_reactancia.config(state="normal")
+
         # Sincronizar selector de onda de hardware si se elige rectificador monofásico de media onda u onda completa
         if hasattr(self, "cb_onda_hw"):
             if idx in [3, 4]:   # RMMO o RMMOC -> Media Onda
                 self.cb_onda_hw.current(1)
             elif idx in [5, 6]: # RMOC o RMOCC -> Onda Completa
                 self.cb_onda_hw.current(0)
+
+    def solicitar_adc_hardware(self):
+        """Solicita al ESP32 vía UDP las lecturas reales de tensión (D35) y corriente (D34)
+        adquiridas durante un ciclo completo de red (GET_ADC -> ADC_DATA:...)."""
+        ip_ingresada = self.ent_esp32_ip.get().strip() if hasattr(self, 'ent_esp32_ip') else self.esp32_ip
+        if not ip_ingresada:
+            raise ValueError("Debe ingresar una dirección IP válida para el ESP32.")
+        try:
+            ipaddress.ip_address(ip_ingresada)
+        except ValueError:
+            raise ValueError(f"'{ip_ingresada}' no es una dirección IP válida (ej. 192.168.1.50).")
+        self.esp32_ip = ip_ingresada
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1.2)
+        try:
+            sock.sendto(b"GET_ADC", (self.esp32_ip, self.esp32_port))
+            data, _ = sock.recvfrom(4096)
+            respuesta = data.decode('utf-8').strip()
+        finally:
+            sock.close()
+
+        if not respuesta.startswith("ADC_DATA:"):
+            raise RuntimeError(f"Respuesta inesperada del ESP32 al solicitar ADC: {respuesta}")
+
+        cuerpo = respuesta[len("ADC_DATA:"):]
+        segmentos = cuerpo.split(";")
+
+        alfa_hw = 0.0
+        onda_hw = "COMPLETA"
+        v_lista = []
+        i_lista = []
+
+        for seg in segmentos:
+            seg = seg.strip()
+            if seg.startswith("ALFA:"):
+                alfa_hw = float(seg[5:])
+            elif seg.startswith("ONDA:"):
+                onda_hw = seg[5:].strip().upper()
+            elif seg.startswith("V:"):
+                str_v = seg[2:].strip()
+                if str_v:
+                    v_lista = [float(x) for x in str_v.split(",") if x.strip() != ""]
+            elif seg.startswith("I:"):
+                str_i = seg[2:].strip()
+                if str_i:
+                    i_lista = [float(x) for x in str_i.split(",") if x.strip() != ""]
+
+        if len(v_lista) == 0 or len(i_lista) == 0:
+            raise RuntimeError("La trama ADC_DATA recibida del ESP32 no contiene muestras válidas de V o I.")
+
+        v_hw = np.array(v_lista, dtype=float)
+        i_hw = np.array(i_lista, dtype=float)
+        return v_hw, i_hw, alfa_hw, onda_hw
 
     def enviar_angulo_hardware(self):
         """Lee el ángulo alfa y el modo de onda de salida (Media Onda / Onda Completa),
@@ -398,23 +462,11 @@ class InterfazGrafica:
 
     def procesar_datos(self):
         try:
-            # 1. Leer inputs de la interfaz
+            # 1. Leer inputs comunes de resolución y armónicas
             idx_senal = self.cb_tipo.current()
-            vp = float(self.ent_vp.get())
-            # Para Muestras ADC (11), el ángulo no tiene injerencia en el cálculo matemático ni gráfico
-            if idx_senal in [2, 4, 6, 8, 10]:
-                alfa_val = float(self.ent_alfa.get()) if self.ent_alfa.instate(['!disabled']) else 0.0
-            else:
-                alfa_val = 0.0
-            r_carga = float(self.ent_carga.get())
-            x_carga = float(self.ent_reactancia.get())
             armonicas = int(self.ent_arm.get())
             muestras = int(self.ent_muestras.get())
 
-            if r_carga < 0:
-                raise ValueError("La resistencia no puede ser negativa")
-            if r_carga == 0 and x_carga == 0:
-                raise ValueError("La impedancia total no puede ser 0")
             if armonicas <= 0:
                 raise ValueError("La cantidad de armónicas debe ser mayor a 0")
             if muestras <= 0:
@@ -424,20 +476,46 @@ class InterfazGrafica:
                     f"Por el teorema de Nyquist, la cantidad de armónicas ({armonicas}) "
                     f"debe ser estrictamente menor a la mitad de las muestras por ciclo ({muestras // 2})."
                 )
-                
-            # Actualizar la resolución (cantidad de muestras) antes de generar las señales
+
+            # Actualizar la resolución (cantidad de muestras) antes de generar o remuestrear las señales
             self.analizador.actualizar_muestras(muestras)
 
-            # Conversión de grados a radianes si la unidad es Grados
-            unidad = self.cb_unidad_alfa.get()
-            if unidad == "Grados":
-                alfa_rad = np.radians(alfa_val)
+            # 2. Obtener señales de Tensión (v) y Corriente (i)
+            onda_hw_adc = "COMPLETA"
+            if idx_senal == 11:
+                # Modo 11: Adquisición real de tensión (D35) y corriente (D34) desde el ESP32
+                v_hw, i_hw, alfa_hw, onda_hw_adc = self.solicitar_adc_hardware()
+                v, i = self.analizador.procesar_muestras_adc(v_hw, i_hw)
+                alfa_rad = np.radians(alfa_hw)
+                vp_escala = max(float(np.max(np.abs(v))), 1.0)
+                self.lbl_estado_hw.config(
+                    text=f"Estado: ADC recibido (α={alfa_hw:.1f}°, Onda={onda_hw_adc}, {len(v_hw)} muestras)",
+                    foreground="#27ae60"
+                )
             else:
-                alfa_rad = alfa_val # Ya está en radianes
+                # Modos 0..10: Simulación teórica según parámetros de entrada
+                vp = float(self.ent_vp.get())
+                if idx_senal in [2, 4, 6, 8, 10]:
+                    alfa_val = float(self.ent_alfa.get()) if self.ent_alfa.instate(['!disabled']) else 0.0
+                else:
+                    alfa_val = 0.0
+                r_carga = float(self.ent_carga.get())
+                x_carga = float(self.ent_reactancia.get())
 
-            # 2. Llamar al modelo para generar señales
-            v = self.analizador.generar_senal_v(idx_senal, vp, alfa_rad)
-            i = self.analizador.generar_corriente(v, r_carga, x_carga, armonicas)
+                if r_carga < 0:
+                    raise ValueError("La resistencia no puede ser negativa")
+                if r_carga == 0 and x_carga == 0:
+                    raise ValueError("La impedancia total no puede ser 0")
+
+                unidad = self.cb_unidad_alfa.get()
+                if unidad == "Grados":
+                    alfa_rad = np.radians(alfa_val)
+                else:
+                    alfa_rad = alfa_val # Ya está en radianes
+
+                v = self.analizador.generar_senal_v(idx_senal, vp, alfa_rad)
+                i = self.analizador.generar_corriente(v, r_carga, x_carga, armonicas)
+                vp_escala = max(abs(vp), 1.0)
 
             # 3. Llamar al modelo para calcular parámetros
             res = self.analizador.analizar_potencia(v, i, armonicas)
@@ -468,7 +546,7 @@ class InterfazGrafica:
             i_2_ciclos = np.concatenate([i, i])
             
             max_i = np.max(np.abs(i_2_ciclos))
-            factor_escala = (vp / max_i) * 0.8 if max_i > 0 else 1.0
+            factor_escala = (vp_escala / max_i) * 0.8 if max_i > 0 else 1.0
             
             self.ax1.plot(theta_2_ciclos, v_2_ciclos, label='Voltaje (V)', color='#2980b9', linewidth=2)
             self.ax1.plot(theta_2_ciclos, i_2_ciclos * factor_escala, 
@@ -502,6 +580,11 @@ class InterfazGrafica:
                     self.ax1.axvline(x=7 * np.pi / 6 + alfa_rad + k, color='#e74c3c', linestyle=':')
                     self.ax1.axvline(x=3 * np.pi / 2 + alfa_rad + k, color='#e74c3c', linestyle=':')
                     self.ax1.axvline(x=11 * np.pi / 6 + alfa_rad + k, color='#e74c3c', linestyle=':')
+            elif idx_senal == 11: # Muestras ADC reales del ESP32
+                for k in [0, 2 * np.pi]:
+                    self.ax1.axvline(x=alfa_rad + k, color='#e74c3c', linestyle=':', label='Corte Alfa' if k == 0 else "")
+                    if onda_hw_adc == "COMPLETA":
+                        self.ax1.axvline(x=np.pi + alfa_rad + k, color='#e74c3c', linestyle=':')
 
             # Dibujar líneas de referencia puntuada tenue para Vavg, Vrms, Iavg, Irms según checkboxes
             dibujar_vavg = self.var_vavg.get() if hasattr(self, 'var_vavg') else False
@@ -602,7 +685,29 @@ class InterfazGrafica:
             # Márgenes estables ya configurados fijos con subplots_adjust en __init__
             self.canvas.draw()
 
+        except (socket.timeout, ConnectionResetError, RuntimeError, socket.error, OSError) as e:
+            if hasattr(self, 'var_tiempo_real') and self.var_tiempo_real.get():
+                self.var_tiempo_real.set(False)
+                self.ent_refresco.config(state="disabled")
+                if self.timer_id is not None:
+                    self.root.after_cancel(self.timer_id)
+                    self.timer_id = None
+            self.lbl_estado_hw.config(
+                text=f"Estado: Sin respuesta ADC ({self.esp32_ip}:{self.esp32_port})",
+                foreground="#c0392b"
+            )
+            messagebox.showerror(
+                "Error de Lectura ADC (ESP32)",
+                f"No fue posible recibir las muestras ADC de tensión (D35) y corriente (D34) "
+                f"desde el ESP32 en {self.esp32_ip}:{self.esp32_port}.\n\nDetalle: {e}"
+            )
         except ValueError as e:
+            if hasattr(self, 'var_tiempo_real') and self.var_tiempo_real.get():
+                self.var_tiempo_real.set(False)
+                self.ent_refresco.config(state="disabled")
+                if self.timer_id is not None:
+                    self.root.after_cancel(self.timer_id)
+                    self.timer_id = None
             messagebox.showerror("Error de Entrada", f"Por favor verifica que todos los campos contengan números válidos.\nDetalle: {e}")
 
     def al_hacer_click(self, event):

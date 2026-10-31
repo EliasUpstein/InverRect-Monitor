@@ -6,11 +6,40 @@ from typing import Dict
 # ==========================================
 class AnalizadorDePotencia:
     def __init__(self, muestras_por_ciclo: int = 256) -> None:
+        self.raw_adc_v: np.ndarray = np.zeros(0)
+        self.raw_adc_i: np.ndarray = np.zeros(0)
+        self.muestras_adc_v: np.ndarray = np.zeros(muestras_por_ciclo)
+        self.muestras_adc_i: np.ndarray = np.zeros(muestras_por_ciclo)
         self.actualizar_muestras(muestras_por_ciclo)
 
     def actualizar_muestras(self, muestras_por_ciclo: int) -> None:
         self.N: int = muestras_por_ciclo
         self.theta: np.ndarray = np.linspace(0, 2 * np.pi, self.N, endpoint=False)
+        if len(self.raw_adc_v) > 0 and len(self.raw_adc_i) > 0:
+            self.muestras_adc_v = self._remuestrear_ciclo(self.raw_adc_v)
+            self.muestras_adc_i = self._remuestrear_ciclo(self.raw_adc_i)
+        else:
+            self.muestras_adc_v = np.zeros(self.N)
+            self.muestras_adc_i = np.zeros(self.N)
+
+    def _remuestrear_ciclo(self, senal_origen: np.ndarray) -> np.ndarray:
+        """Remuestrea periódicamente un vector de 1 ciclo [0, 2π) a la cantidad de muestras self.N"""
+        n_orig = len(senal_origen)
+        if n_orig == 0:
+            return np.zeros(self.N)
+        if n_orig == self.N:
+            return senal_origen.astype(float, copy=True)
+        theta_orig = np.linspace(0, 2 * np.pi, n_orig + 1, endpoint=True)
+        senal_ext = np.append(senal_origen, senal_origen[0])
+        return np.interp(self.theta, theta_orig, senal_ext)
+
+    def procesar_muestras_adc(self, v_adc: np.ndarray, i_adc: np.ndarray) -> tuple:
+        """Almacena y adapta las muestras reales de tensión (D35) y corriente (D34) recibidas del ESP32"""
+        self.raw_adc_v = np.asarray(v_adc, dtype=float)
+        self.raw_adc_i = np.asarray(i_adc, dtype=float)
+        self.muestras_adc_v = self._remuestrear_ciclo(self.raw_adc_v)
+        self.muestras_adc_i = self._remuestrear_ciclo(self.raw_adc_i)
+        return self.muestras_adc_v, self.muestras_adc_i
 
     def generar_senal_v(self, tipo_idx: int, Vp: float, alfa_rad: float) -> np.ndarray:
         """Genera el vector de tensión según el índice seleccionado en la UI"""
@@ -107,8 +136,8 @@ class AnalizadorDePotencia:
             senal[s5] = vcb[s5]
             return np.maximum(senal, 0.0)
             
-        elif tipo_idx == 11: # Muestras ADC (Simuladas) - Obligatoriamente la última opción
-            return Vp * np.sin(self.theta) + np.random.normal(0, Vp * 0.1, self.N)
+        elif tipo_idx == 11: # Muestras ADC reales leídas desde el ESP32 (D35) - Obligatoriamente la última opción
+            return self.muestras_adc_v.copy()
             
         return np.zeros(self.N)
 

@@ -1,8 +1,10 @@
-# Firmware ESP32 - Control de Disparo Único, Selección de Onda, ADC y Comunicaciones en Red
+# Firmware ESP32 - Control de Disparo Único, Selección de Onda, Lecturas ADC (Tensión/Corriente) y Comunicaciones en Red
 
-Este directorio contiene el firmware embebido para el microcontrolador **ESP32** (SoC dual-core Xtensa LX6 a 240 MHz), diseñado para el control de fase en tiempo real de convertidores estáticos de potencia mediante un **único circuito de disparo para ambos tiristores**.
+Este directorio contiene el firmware embebido para el microcontrolador **ESP32** (SoC dual-core Xtensa LX6 a 240 MHz), diseñado para el control de fase en tiempo real y adquisición de formas de onda de convertidores estáticos de potencia mediante un **único circuito de disparo para ambos tiristores**.
 
-Permite conmutar dinámicamente la salida entre **Onda Completa** (disparo en todos los cruces por cero) y **Media Onda** (disparo intercalado en un único semiciclo por período), priorizando las órdenes de la interfaz gráfica SCADA cuando existe conexión inalámbrica y conmutando automáticamente a los controles físicos de hardware (potenciómetro ADC y pin con pull-up) en caso de desconexión o fallo de red.
+Permite:
+1. Conmutar dinámicamente la salida entre **Onda Completa** (disparo en todos los cruces por cero) y **Media Onda** (disparo intercalado en un único semiciclo por período), priorizando las órdenes de la interfaz gráfica cuando existe conexión inalámbrica y conmutando automáticamente a los controles físicos de hardware (potenciómetro en `D36` y selector con pull-up en `D25`) en caso de desconexión.
+2. Adquirir de forma sincronizada con el cruce por cero un ciclo completo ($360^\circ$, 64 muestras) de la **Tensión de Salida (`D35`)** mediante divisor resistivo y la **Corriente de Salida (`D34`)** mediante sensor **ACS712** y su divisor resistivo, enviando ambas formas de onda reales a la interfaz gráfica vía UDP.
 
 ---
 
@@ -21,48 +23,45 @@ El firmware desacopla las operaciones de tiempo crítico de las tareas de red y 
                  ├───────────────────────────┤   ├───────────────────────────┤
   Opto ZCD ─────►│ • ISR Cruce por Cero      │   │ • Conexión Wi-Fi (STA)    │
   (GPIO 4)       │   (CHANGE - cada 10 ms)   │   │ • Servidor UDP (Port 8888)│
-                 │ • Onda Completa (Todos)   │   │ • Servicio ArduinoOTA     │
-  Potenciómetro ─►│   vs Media Onda (Interc.) │   │   con suspensión segura   │
-  (GPIO 36 ADC)  │ • Prioridad GUI / Fallback│   │   de potencia en onStart  │
-  Pin Pull-Up ──►│   a Hardware (GPIO 36/17) │   │ • Parseo de Ángulo y Onda │
-  (GPIO 17)      │ • Disparo de Compuerta    │   │   ("ALFA:..;ONDA:..")     │
-  MOC3021 ◄──────│   Único (Pulso de 50 µs)  │   │ • Sincronización atómica  │
-  (GPIO 16)      └─────────────┬─────────────┘   └─────────────┬─────────────┘
-                               │                               │
-                               └───────────► MUX ◄─────────────┘
+  Divisor Vout ─►│ • Muestreo Síncrono ADC   │   │ • Servicio ArduinoOTA     │
+  (GPIO 35 / D35)│   64 muestras/ciclo V e I │   │   con suspensión segura   │
+  ACS712 Iout ──►│ • Prioridad al Disparo    │   │   de potencia en onStart  │
+  (GPIO 34 / D34)│   (guardia de 80 µs)      │   │ • Comandos "ALFA:..;ONDA" │
+  Potenciómetro ►│ • Fallback HW (D36 / D25) │   │   y Telemetría "GET_ADC"  │
+  (GPIO 36 / D36)│ • Disparo de Compuerta    │   │ • Sincronización atómica  │
+  Pull-Up Onda ─►│   Único (Pulso de 50 µs)  │   │   mediante Spinlock MUX   │
+  (GPIO 25 / D25)└─────────────┬─────────────┘   └─────────────┬─────────────┘
+  MOC3021 ◄──────┘             │                               │
+  (GPIO 16)                    └───────────► MUX ◄─────────────┘
                                     (timerMux - Spinlock)
 ```
-
-### Core 1: Control de Tiempo Real, Selección de Onda y Fallback de Hardware
-* **Detección de Todos los Cruces por Cero (`isrCrucePorCero`):**
-  * Vinculada a interrupción en ambos flancos (`CHANGE`) en **GPIO 4**, detectando cada semiciclo ($180^\circ$, $\sim 10000\,\mu\text{s}$ a 50 Hz).
-  * **Filtro Antirrebote Industrial:** Descarta ruidos y transitorios menores a $6000\,\mu\text{s}$ (`FILTRO_DEBOUNCE_ZCD_US`).
-* **Circuito de Disparo Único (Onda Completa vs Media Onda):**
-  * **Onda Completa (`modo_onda_completa = true`):** Utiliza **todos** los cruces por cero para emitir el pulso de disparo en ambos semiciclos hacia el opto-TRIAC (`MOC3021`), cebando alternadamente ambos tiristores.
-  * **Media Onda (`modo_onda_completa = false`):** Utiliza los cruces por cero de manera **intercalada** (`semicicloIntercalado = !semicicloIntercalado`), disparando únicamente en un semiciclo por cada ciclo de red.
-* **Lógica de Prioridad (Interfaz Inalámbrica vs Hardware Local):**
-  * **Con conexión activa (`control_interfaz_activo = true`):** Obedece la configuración enviada desde la interfaz gráfica (tipo de onda y ángulo fijo o lectura de ADC si se seleccionó `11. Muestras ADC`).
-  * **Sin conexión / Fallo Wi-Fi (`control_interfaz_activo = false`):** Evalúa automáticamente el hardware en cada ciclo:
-    1. **Potenciómetro Analógico (GPIO 36):** Mapea la lectura ADC de 12 bits ($0-4095$) al rango seguro de $5.0^\circ$ a $175.0^\circ$.
-    2. **Selector de Onda por Hardware (GPIO 17 con Pull-Up):** Nivel alto (`HIGH`) selecciona **Onda Completa** y nivel bajo (`LOW`) selecciona **Media Onda**.
 
 ---
 
 ## 2. Asignación de Pines (Pinout de Hardware)
 
-| Función | Pin ESP32 | Tipo | Dispositivo Conectado | Descripción |
+| Función | Pin ESP32 | Tipo | Circuito Conectado | Descripción |
 | :--- | :---: | :---: | :--- | :--- |
-| **Cruce por Cero (ZC)** | `GPIO 4` | Entrada Digital | Optoacoplador (PC817) | Detección de cada semiciclo (`CHANGE`, cada 10 ms) con filtro de 6 ms. |
-| **Disparo Compuerta Único** | `GPIO 16` | Salida Digital | Driver Opto-TRIAC (MOC3021) | Pulso de $50\,\mu\text{s}$ hacia el circuito de disparo único de ambos SCRs. |
-| **Selector de Onda HW** | `GPIO 17` | Entrada Pull-Up | Jumper / Switch con Pull-Up | Fallback sin Wi-Fi: `HIGH` = Onda Completa, `LOW` = Media Onda. |
-| **Potenciómetro Analógico** | `GPIO 36` | Entrada Analógica | Potenciómetro (ADC1 Channel 0 / VP) | Variación analógica del ángulo $\alpha$ ($5^\circ$ a $175^\circ$). |
-| **Monitor Serie (UART)** | `TX0 / RX0` | Bidireccional | PC / Convertidor USB-Serie | Telemetría a 115200 baudios y comandos de prueba (`ADC`, `COMPLETA`, `MEDIA`, `HW`). |
+| **Cruce por Cero (ZC)** | `GPIO 4` (`D4`) | Entrada Digital | Optoacoplador (PC817) | Detección de cada semiciclo (`CHANGE`, cada 10 ms) con filtro de 6 ms. |
+| **Disparo Compuerta Único** | `GPIO 16` (`D16`) | Salida Digital | Driver Opto-TRIAC (MOC3021) | Pulso de $50\,\mu\text{s}$ hacia el circuito de disparo único de ambos SCRs. |
+| **Selector de Onda HW** | `GPIO 25` (`D25`) | Entrada Pull-Up | Selector con Pull-Up | Fallback sin Wi-Fi: `HIGH` = Onda Completa, `LOW` = Media Onda. |
+| **ADC Corriente Salida** | `GPIO 34` (`D34`) | Entrada Analógica (`ADC1_CH6`) | Salida `ACS712` + Divisor ($1\text{ k}\Omega / 2\text{ k}\Omega$) | Medición de corriente de salida adaptada al rango de $3.3\text{ V}$ del ESP32. |
+| **ADC Tensión Salida** | `GPIO 35` (`D35`) | Entrada Analógica (`ADC1_CH7`) | Divisor resistivo de salida + offset $1.65\text{ V}$ | Medición de tensión instantánea de salida del rectificador. |
+| **Potenciómetro Analógico** | `GPIO 36` (`VP`) | Entrada Analógica (`ADC1_CH0`) | Potenciómetro de control | Variación analógica del ángulo $\alpha$ ($5^\circ$ a $175^\circ$). |
+| **Monitor Serie (UART)** | `TX0 / RX0` | Bidireccional | PC / Convertidor USB-Serie | Telemetría a 115200 baudios y comandos de prueba (`ADC`, `COMPLETA`, `MEDIA`, `HW`, `MUESTRAS`). |
 
 ---
 
-## 3. Protocolo de Comunicación UDP (Ángulo + Selección de Onda)
+## 3. Acondicionamiento Analógico y Escalado ADC
 
-El ESP32 escucha en el puerto UDP `8888`:
+* **Tensión de Salida (`D35` / `GPIO 35`):**
+  $$V_{\text{out}} = \left(V_{\text{ADC,D35}} - V_{\text{offset,1.65V}}\right) \cdot \frac{R_{\text{sup}} + R_{\text{inf}}}{R_{\text{inf}}}$$
+* **Corriente de Salida (`D34` / `GPIO 34` - Sensor ACS712):**
+  $$V_{\text{ACS712}} = V_{\text{ADC,D34}} \cdot \frac{R_{\text{serie}} + R_{\text{gnd}}}{R_{\text{gnd}}}, \qquad I_{\text{out}} = \frac{V_{\text{ACS712}} - 2.50\text{ V}}{\text{Sensibilidad}_{\text{ACS712}}}$$
+
+---
+
+## 4. Protocolo de Comunicación UDP (Puerto `8888`)
 
 ```
 [PC -> ESP32]   ALFA:60.0;ONDA:COMPLETA      --> Ángulo fijo 60.0° y salida en Onda Completa
@@ -71,6 +70,6 @@ El ESP32 escucha en el puerto UDP `8888`:
 [PC -> ESP32]   ALFA:45.0;ONDA:MEDIA         --> Ángulo fijo 45.0° y salida en Media Onda (intercalada)
 [ESP32 -> PC]   ACK:ALFA:45.0;ONDA:MEDIA     --> Confirmación de parámetros aplicados
 
-[PC -> ESP32]   ALFA:ADC;ONDA:COMPLETA       --> Ángulo por potenciómetro ADC y salida en Onda Completa
-[ESP32 -> PC]   ACK:ALFA:ADC:<deg>;ONDA:COMPLETA
+[PC -> ESP32]   GET_ADC                      --> Solicitud de formas de onda medidas en D35 (V) y D34 (I)
+[ESP32 -> PC]   ADC_DATA:ALFA:<deg>;ONDA:<COMPLETA|MEDIA>;V:<v0>,...,<v63>;I:<i0>,...,<i63>
 ```
