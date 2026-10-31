@@ -1,8 +1,8 @@
-# Firmware ESP32 - Control de Disparo, ADC y Comunicaciones en Red
+# Firmware ESP32 - Control de Disparo Único, Selección de Onda, ADC y Comunicaciones en Red
 
-Este directorio contiene el firmware embebido para el microcontrolador **ESP32** (SoC dual-core Xtensa LX6 a 240 MHz), diseñado para el control de fase en tiempo real de convertidores estáticos de potencia (rectificadores controlados mediante tiristores/SCRs o TRIACs). 
+Este directorio contiene el firmware embebido para el microcontrolador **ESP32** (SoC dual-core Xtensa LX6 a 240 MHz), diseñado para el control de fase en tiempo real de convertidores estáticos de potencia mediante un **único circuito de disparo para ambos tiristores**.
 
-Esta versión combina y optimiza el control analógico por potenciómetro y temporización ZCD con la arquitectura dual-core FreeRTOS y el protocolo de control remoto inalámbrico por UDP con la consola SCADA de PC.
+Permite conmutar dinámicamente la salida entre **Onda Completa** (disparo en todos los cruces por cero) y **Media Onda** (disparo intercalado en un único semiciclo por período), priorizando las órdenes de la interfaz gráfica SCADA cuando existe conexión inalámbrica y conmutando automáticamente a los controles físicos de hardware (potenciómetro ADC y pin con pull-up) en caso de desconexión o fallo de red.
 
 ---
 
@@ -20,37 +20,31 @@ El firmware desacopla las operaciones de tiempo crítico de las tareas de red y 
                  │   (Tiempo Real Estricto)  │   │   (Comunicaciones / Red)  │
                  ├───────────────────────────┤   ├───────────────────────────┤
   Opto ZCD ─────►│ • ISR Cruce por Cero      │   │ • Conexión Wi-Fi (STA)    │
-  (GPIO 4)       │   (isrCrucePorCero - IRAM)│   │ • Servidor UDP (Port 8888)│
-                 │ • Medición Dinámica ZCD   │   │ • Servicio ArduinoOTA     │
-  Potenciómetro ─►│   (periodoCicloCompleto)  │   │   con suspensión segura   │
-  (GPIO 36 ADC)  │ • Lectura ADC Potencióm.  │   │   de potencia en onStart  │
-                 │   (Mapeo ADC 0-4095->5-175°)│   │ • Parseo de "ALFA:xx.x" y │
-  MOC3021 ◄──────│ • Disparo de Compuerta    │   │   "ALFA:ADC" / "MODO:ADC" │
-  (GPIO 16)      │   (Pulso de 50 µs)        │   │ • Sincronización atómica  │
-                 └─────────────┬─────────────┘   └─────────────┬─────────────┘
+  (GPIO 4)       │   (CHANGE - cada 10 ms)   │   │ • Servidor UDP (Port 8888)│
+                 │ • Onda Completa (Todos)   │   │ • Servicio ArduinoOTA     │
+  Potenciómetro ─►│   vs Media Onda (Interc.) │   │   con suspensión segura   │
+  (GPIO 36 ADC)  │ • Prioridad GUI / Fallback│   │   de potencia en onStart  │
+  Pin Pull-Up ──►│   a Hardware (GPIO 36/17) │   │ • Parseo de Ángulo y Onda │
+  (GPIO 17)      │ • Disparo de Compuerta    │   │   ("ALFA:..;ONDA:..")     │
+  MOC3021 ◄──────│   Único (Pulso de 50 µs)  │   │ • Sincronización atómica  │
+  (GPIO 16)      └─────────────┬─────────────┘   └─────────────┬─────────────┘
                                │                               │
                                └───────────► MUX ◄─────────────┘
                                     (timerMux - Spinlock)
 ```
 
-### Core 1: Control de Tiempo Real y Potencia (Procesamiento Físico)
-* **Detección de Cruce por Cero (`isrCrucePorCero`):**
-  * Vinculada a interrupción por flanco descendente (`FALLING`) en **GPIO 4**.
-  * Medición dinámica en microsegundos del periodo de ciclo (`periodoCicloCompleto = micros() - tiempoUltimoCruce`), permitiendo adaptarse automáticamente a redes de 50 Hz ($20000\,\mu\text{s}$) o 60 Hz ($16667\,\mu\text{s}$).
-  * **Filtro Antirrebote Industrial:** Descarta ruidos y armónicas espurias antes de $12000\,\mu\text{s}$ (`FILTRO_DEBOUNCE_ZCD_US`).
-* **Modo Potenciómetro Analógico (ADC - GPIO 36):**
-  * Configuración ADC1 a 12 bits ($0-4095$).
-  * Mapeo dinámico y continuo del ángulo $\alpha$ entre $5.0^\circ$ y $175.0^\circ$ en tiempo real cuando `!cruceDetectado`, garantizando que el disparo nunca colisione con el cruce por cero.
-* **Generación de Pulso de Compuerta (GPIO 16):**
-  * Generación de pulso limpio de $50\,\mu\text{s}$ para el opto-TRIAC (MOC3021) / Tiristores.
-  * Retardo calculado con compensación física de optoacoplador (`ADELANTO_COMPENSACION_US = 100` $\mu\text{s}$).
-
-### Core 0: Capa de Red y Servicios (FreeRTOS `TaskComunicaciones`)
-* **Servicio ArduinoOTA Seguro:**
-  * Al iniciar un flasheo inalámbrico (`onStart`), se desvincula la interrupción ZCD (`detachInterrupt`) y se fuerza `GPIO 16` a `LOW`, suspendiendo la etapa de potencia para evitar disparos erráticos o destrucciones de semiconductores.
-* **Servidor UDP Bidireccional (Puerto 8888):**
-  * Permite conmutar dinámicamente entre **Control Manual Fijo (`ALFA:60.0`)** y **Control por Potenciómetro Analógico (`ALFA:ADC`)**.
-  * Emite acuses de recibo (`ACK:ALFA:xx.x` / `ACK:ALFA:ADC`) a la interfaz gráfica SCADA.
+### Core 1: Control de Tiempo Real, Selección de Onda y Fallback de Hardware
+* **Detección de Todos los Cruces por Cero (`isrCrucePorCero`):**
+  * Vinculada a interrupción en ambos flancos (`CHANGE`) en **GPIO 4**, detectando cada semiciclo ($180^\circ$, $\sim 10000\,\mu\text{s}$ a 50 Hz).
+  * **Filtro Antirrebote Industrial:** Descarta ruidos y transitorios menores a $6000\,\mu\text{s}$ (`FILTRO_DEBOUNCE_ZCD_US`).
+* **Circuito de Disparo Único (Onda Completa vs Media Onda):**
+  * **Onda Completa (`modo_onda_completa = true`):** Utiliza **todos** los cruces por cero para emitir el pulso de disparo en ambos semiciclos hacia el opto-TRIAC (`MOC3021`), cebando alternadamente ambos tiristores.
+  * **Media Onda (`modo_onda_completa = false`):** Utiliza los cruces por cero de manera **intercalada** (`semicicloIntercalado = !semicicloIntercalado`), disparando únicamente en un semiciclo por cada ciclo de red.
+* **Lógica de Prioridad (Interfaz Inalámbrica vs Hardware Local):**
+  * **Con conexión activa (`control_interfaz_activo = true`):** Obedece la configuración enviada desde la interfaz gráfica (tipo de onda y ángulo fijo o lectura de ADC si se seleccionó `11. Muestras ADC`).
+  * **Sin conexión / Fallo Wi-Fi (`control_interfaz_activo = false`):** Evalúa automáticamente el hardware en cada ciclo:
+    1. **Potenciómetro Analógico (GPIO 36):** Mapea la lectura ADC de 12 bits ($0-4095$) al rango seguro de $5.0^\circ$ a $175.0^\circ$.
+    2. **Selector de Onda por Hardware (GPIO 17 con Pull-Up):** Nivel alto (`HIGH`) selecciona **Onda Completa** y nivel bajo (`LOW`) selecciona **Media Onda**.
 
 ---
 
@@ -58,32 +52,25 @@ El firmware desacopla las operaciones de tiempo crítico de las tareas de red y 
 
 | Función | Pin ESP32 | Tipo | Dispositivo Conectado | Descripción |
 | :--- | :---: | :---: | :--- | :--- |
-| **Cruce por Cero (ZC)** | `GPIO 4` | Entrada Digital | Optoacoplador (4N25 / PC817) | Detección de cruce por cero (`FALLING`) con filtro antirrebote de 12 ms. |
-| **Disparo Compuerta** | `GPIO 16` | Salida Digital | Driver Opto-TRIAC (MOC3021) | Pulso de $50\,\mu\text{s}$ hacia compuerta de tiristores / TRIAC. |
-| **Potenciómetro Analógico** | `GPIO 36` | Entrada Analógica | Potenciómetro (ADC1 Channel 0 / VP) | Variación analógica local del ángulo $\alpha$ ($5^\circ$ a $175^\circ$). |
-| **Monitor Serie (UART)** | `TX0 / RX0` | Bidireccional | PC / Convertidor USB-Serie | Telemetría a 115200 baudios y comandos de prueba (`ADC` / número). |
+| **Cruce por Cero (ZC)** | `GPIO 4` | Entrada Digital | Optoacoplador (PC817) | Detección de cada semiciclo (`CHANGE`, cada 10 ms) con filtro de 6 ms. |
+| **Disparo Compuerta Único** | `GPIO 16` | Salida Digital | Driver Opto-TRIAC (MOC3021) | Pulso de $50\,\mu\text{s}$ hacia el circuito de disparo único de ambos SCRs. |
+| **Selector de Onda HW** | `GPIO 17` | Entrada Pull-Up | Jumper / Switch con Pull-Up | Fallback sin Wi-Fi: `HIGH` = Onda Completa, `LOW` = Media Onda. |
+| **Potenciómetro Analógico** | `GPIO 36` | Entrada Analógica | Potenciómetro (ADC1 Channel 0 / VP) | Variación analógica del ángulo $\alpha$ ($5^\circ$ a $175^\circ$). |
+| **Monitor Serie (UART)** | `TX0 / RX0` | Bidireccional | PC / Convertidor USB-Serie | Telemetría a 115200 baudios y comandos de prueba (`ADC`, `COMPLETA`, `MEDIA`, `HW`). |
 
 ---
 
-## 3. Protocolo de Comunicación UDP (Handshake Híbrido)
+## 3. Protocolo de Comunicación UDP (Ángulo + Selección de Onda)
 
 El ESP32 escucha en el puerto UDP `8888`:
 
 ```
-[PC -> ESP32]   ALFA:ADC            --> Activa control analógico por potenciómetro (GPIO 36)
-[ESP32 -> PC]   ACK:ALFA:ADC:<deg>  --> Confirma activación de modo ADC y ángulo actual
+[PC -> ESP32]   ALFA:60.0;ONDA:COMPLETA      --> Ángulo fijo 60.0° y salida en Onda Completa
+[ESP32 -> PC]   ACK:ALFA:60.0;ONDA:COMPLETA  --> Confirmación de parámetros aplicados
 
-[PC -> ESP32]   ALFA:45.0           --> Fija ángulo manual en 45.0° (Desactiva modo ADC)
-[ESP32 -> PC]   ACK:ALFA:45.0       --> Confirma ángulo fijado
+[PC -> ESP32]   ALFA:45.0;ONDA:MEDIA         --> Ángulo fijo 45.0° y salida en Media Onda (intercalada)
+[ESP32 -> PC]   ACK:ALFA:45.0;ONDA:MEDIA     --> Confirmación de parámetros aplicados
+
+[PC -> ESP32]   ALFA:ADC;ONDA:COMPLETA       --> Ángulo por potenciómetro ADC y salida en Onda Completa
+[ESP32 -> PC]   ACK:ALFA:ADC:<deg>;ONDA:COMPLETA
 ```
-
----
-
-## 4. Verificación y Ejecución de Pruebas
-
-Para verificar el funcionamiento del firmware:
-1. Abrir `esp32_firmware/esp32_firmware.ino` en Arduino IDE o PlatformIO.
-2. Modificar `WIFI_SSID` y `WIFI_PASSWORD` con las credenciales de la red.
-3. Flashear la placa ESP32 por primera vez mediante USB / Serial.
-4. Ejecutar la consola SCADA de PC: `python pc_software/main.py`.
-5. Seleccionar la opción **`11. Muestras ADC (Simuladas)`** en el desplegable y presionar **"Enviar Ángulo (α) al Hardware"**: la consola transmitirá `ALFA:ADC` y el ESP32 responderá pasando al control en tiempo real mediante el potenciómetro analógico en GPIO 36.

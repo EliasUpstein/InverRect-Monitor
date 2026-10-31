@@ -167,12 +167,25 @@ class InterfazGrafica:
         self.ent_esp32_ip.insert(0, self.esp32_ip)
         self.ent_esp32_ip.pack(side=tk.LEFT, padx=(4, 0), fill=tk.X, expand=True)
 
+        frame_onda = ttk.Frame(frame_hw)
+        frame_onda.pack(fill=tk.X, pady=(0, 3))
+        ttk.Label(frame_onda, text="Onda de Salida:").pack(side=tk.LEFT)
+        self.cb_onda_hw = ttk.Combobox(
+            frame_onda,
+            values=["Onda Completa", "Media Onda"],
+            state="readonly",
+            width=15,
+            font=("Segoe UI", 10)
+        )
+        self.cb_onda_hw.current(0) # Por defecto Onda Completa
+        self.cb_onda_hw.pack(side=tk.LEFT, padx=(4, 0), fill=tk.X, expand=True)
+
         self.lbl_estado_hw = ttk.Label(frame_hw, text="Estado: Desconectado", font=("Segoe UI", 10, "bold"))
         self.lbl_estado_hw.pack(anchor="w", pady=(0, 3))
 
         self.btn_enviar_hw = ttk.Button(
             frame_hw,
-            text="Enviar Ángulo (α) al Hardware",
+            text="Enviar Configuración al Hardware",
             command=self.enviar_angulo_hardware,
             padding=4
         )
@@ -241,7 +254,7 @@ class InterfazGrafica:
                 messagebox.showwarning("Error de Formato", "Por favor ingresa un número numérico válido para los segundos de refresco.")
 
     def actualizar_estado_alfa(self, event=None):
-        """Habilita o deshabilita el input de Alfa según la señal seleccionada"""
+        """Habilita o deshabilita el input de Alfa y sincroniza el modo de onda sugerido según la señal seleccionada"""
         idx = self.cb_tipo.current()
         # Alfa aplica en Cuasi-cuadrada (2), RMMOC (4), RMOCC (6), RTMOC (8), RTOCC (10)
         # y Muestras ADC (11) únicamente para envío al hardware (sin injerencia en el gráfico)
@@ -252,10 +265,17 @@ class InterfazGrafica:
             self.ent_alfa.config(state="disabled")
             self.cb_unidad_alfa.config(state="disabled")
 
+        # Sincronizar selector de onda de hardware si se elige rectificador monofásico de media onda u onda completa
+        if hasattr(self, "cb_onda_hw"):
+            if idx in [3, 4]:   # RMMO o RMMOC -> Media Onda
+                self.cb_onda_hw.current(1)
+            elif idx in [5, 6]: # RMOC o RMOCC -> Onda Completa
+                self.cb_onda_hw.current(0)
+
     def enviar_angulo_hardware(self):
-        """Lee el ángulo alfa de entrada, valida que sea un float seguro entre 0° y 180°,
-        transmite el comando vía UDP al microcontrolador ESP32 y verifica la conexión
-        aguardando activamente un acuse de recibo (ACK)."""
+        """Lee el ángulo alfa y el modo de onda de salida (Media Onda / Onda Completa),
+        valida los parámetros, transmite el comando vía UDP al microcontrolador ESP32
+        y verifica la conexión aguardando activamente un acuse de recibo (ACK)."""
         try:
             # 0. Leer y validar sintaxis de la dirección IP
             ip_ingresada = self.ent_esp32_ip.get().strip() if hasattr(self, 'ent_esp32_ip') else self.esp32_ip
@@ -267,13 +287,17 @@ class InterfazGrafica:
                 raise ValueError(f"'{ip_ingresada}' no es una dirección IP válida (ej. 192.168.1.50).")
             self.esp32_ip = ip_ingresada
 
-            # 1. Leer el valor actual del campo self.ent_alfa
+            # 1. Determinar el modo de onda de salida seleccionado (Media Onda vs Onda Completa)
+            onda_seleccionada = self.cb_onda_hw.get() if hasattr(self, "cb_onda_hw") else "Onda Completa"
+            onda_cmd = "MEDIA" if onda_seleccionada == "Media Onda" else "COMPLETA"
+
+            # 2. Leer el valor actual del campo self.ent_alfa y tipo de señal
             valor_raw = self.ent_alfa.get().strip() if hasattr(self, 'ent_alfa') else ""
             idx_tipo = self.cb_tipo.current() if hasattr(self, 'cb_tipo') else 0
 
             # Si se seleccionó "11. Muestras ADC" o se ingresó "ADC", enviar comando de modo potenciómetro
-            if valor_raw.upper() == "ADC" or (idx_tipo == 11 and (valor_raw.upper() == "ADC" or not valor_raw)):
-                mensaje = "ALFA:ADC"
+            if idx_tipo == 11 or valor_raw.upper() == "ADC":
+                cmd_alfa = "ALFA:ADC"
             else:
                 angulo = float(valor_raw)
 
@@ -294,8 +318,10 @@ class InterfazGrafica:
                         f"El ángulo ({alfa_deg:.2f}°) está fuera del rango físico permitido (0° a 180°)."
                     )
 
-                # Generar mensaje en texto plano
-                mensaje = f"ALFA:{alfa_deg:.1f}"
+                cmd_alfa = f"ALFA:{alfa_deg:.1f}"
+
+            # Generar mensaje unificado con ángulo y selección de onda de salida
+            mensaje = f"{cmd_alfa};ONDA:{onda_cmd}"
 
             # Feedback visual de envío en progreso
             self.lbl_estado_hw.config(
@@ -314,7 +340,7 @@ class InterfazGrafica:
                 data, addr = sock.recvfrom(1024)
                 respuesta = data.decode('utf-8').strip()
 
-                if respuesta.startswith("ACK:ALFA:") or respuesta.startswith("ACK:MODO:"):
+                if respuesta.startswith("ACK:ALFA:") or respuesta.startswith("ACK:MODO:") or respuesta.startswith("ACK:ONDA:"):
                     self.lbl_estado_hw.config(
                         text=f"Estado: Conectado (ESP32 confirmó {respuesta})",
                         foreground="#27ae60"
