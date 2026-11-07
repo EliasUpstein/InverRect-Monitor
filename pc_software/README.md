@@ -58,29 +58,34 @@ El selector de señales implementa 12 tipos de formas de onda estandarizadas:
 | **8** | `8. RTMOC` | Rectificador Trifásico de Media Onda Controlado (retardo $\alpha$ desde $\pi/6$). |
 | **9** | `9. RTOC` | Rectificador Trifásico de Onda Completa / Puente Graetz de 6 pulsos. |
 | **10** | `10. RTOCC` | Rectificador Trifásico de Onda Completa Controlado (6 tiristores con control $\alpha$). |
-| **11** | `11. Muestras ADC (Simuladas)` | Señal senoidal con inyección de ruido gaussiano ($\sigma = 0.1 V_p$), simulando telemetría analógica real. Permite editar el ángulo $\alpha$ para enviar comandos de hardware sin alterar la señal simulada. |
+| **11** | `11. Muestras ADC` | Adquisición real de ciclo completo ($360^\circ$, 64 muestras) de tensión (D35) y corriente (D34) medidas por el ESP32, remuestreadas dinámicamente según la resolución configurada. Permite variar $\alpha$ tanto por software como por potenciómetro físico. |
 
 ---
 
-## 3. Capa de Comunicación UDP y Verificación de Conexión (Enlace con ESP32)
+## 3. Capa de Comunicación UDP y Control de Hardware Genérico (ESP32)
 
-La aplicación implementa un cliente UDP robusto con **verificación bidireccional mediante acuse de recibo (ACK/NACK)** para asegurar que el comando realmente llegó y fue aplicado en el microcontrolador:
+La aplicación implementa un panel de conexión genérico al microcontrolador ESP32 con **selección de tipo de convertidor (Rectificador / Inversor)** y verificación bidireccional mediante acuse de recibo (ACK/NACK):
 
+* **Selección Genérica de Dispositivo:**
+  * **Rectificador (Por defecto):** Habilita la configuración de IP, selección de onda de salida (`Onda Completa` vs `Media Onda`) y envío del ángulo de disparo ($\alpha$).
+  * **Inversor:** Bloquea automáticamente todas las opciones de hardware específicas del rectificador (IP, selector de onda y botón de envío), indicando visualmente el estado del modo inversor en desarrollo.
 * **Parámetros de Red y Configuración Dinámica:**
   * Dirección IP configurable directamente desde el panel de control (ej. `192.168.1.50`).
   * Validación sintáctica previa con el módulo `ipaddress` para rechazar formatos erróneos antes de emitir tráfico de red.
   * Puerto de escucha UDP local del ESP32: `8888`.
 * **Protocolo de Comunicación Bidireccional:**
-  1. **Comando de la PC al ESP32:** Trama en texto plano `"ALFA:xx.x"` (ej. `"ALFA:45.0"`).
-  2. **Respuesta del ESP32 a la PC:**
-     * Aceptado: `"ACK:ALFA:xx.x\n"`
+  1. **Comando de la PC al ESP32:** Trama en texto plano `"ALFA:xx.x;ONDA:<COMPLETA|MEDIA>"` o `"ALFA:ADC;ONDA:..."`.
+  2. **Solicitud de Muestras ADC:** Trama `"GET_ADC"` que devuelve las 64 muestras reales de tensión y corriente de salida (`D35` y `D34`).
+  3. **Respuesta del ESP32 a la PC:**
+     * Aceptado: `"ACK:ALFA:xx.x;ONDA:..."`
+     * Telemetría: `"ADC_DATA:ALFA:...;ONDA:...;V:...;I:..."`
      * Rechazado: `"NACK:OUT_OF_RANGE:xx.x\n"`
 * **Detección de Timeout y Fallos de Red:**
   * El socket opera con un timeout estricto de **1.2 segundos** (`sock.settimeout(1.2)`).
   * Si la IP es inaccesible, el ESP32 está apagado o el puerto está cerrado, se captura `socket.timeout` o `ConnectionResetError` (ICMP Port Unreachable), pasando el estado a **rojo** y alertando al usuario con un diálogo explicativo sin falsos positivos.
-  * Solo al recibir la trama `ACK:ALFA:` el estado cambia a **verde** certificando la conexión real con el hardware.
+  * Solo al recibir la trama de confirmación el estado cambia a **verde** certificando la conexión real con el hardware.
 * **Validación de Seguridad Industrial:**
-  * Rango físico admitido: $0.0^\circ \le \alpha \le 180.0^\circ$.
+  * Rango físico admitido para disparo: $0.0^\circ \le \alpha \le 180.0^\circ$.
   * Bloqueo local contra números no válidos, NaN e infinitos.
 
 ---

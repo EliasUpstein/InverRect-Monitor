@@ -157,19 +157,35 @@ class InterfazGrafica:
         self.ent_refresco.grid(row=0, column=2, sticky="w", pady=2)
 
         # --- Control de Hardware (ESP32) ---
-        frame_hw = ttk.LabelFrame(frame_izq, text="Control de Hardware (ESP32)", padding="6")
+        frame_hw = ttk.LabelFrame(frame_izq, text="Conexión al ESP32 (Hardware)", padding="6")
         frame_hw.pack(fill=tk.X, pady=(0, 6))
+
+        frame_disp = ttk.Frame(frame_hw)
+        frame_disp.pack(fill=tk.X, pady=(0, 3))
+        ttk.Label(frame_disp, text="Dispositivo:").pack(side=tk.LEFT)
+        self.cb_dispositivo_hw = ttk.Combobox(
+            frame_disp,
+            values=["Rectificador", "Inversor"],
+            state="readonly",
+            width=15,
+            font=("Segoe UI", 10)
+        )
+        self.cb_dispositivo_hw.current(0) # Por defecto Rectificador
+        self.cb_dispositivo_hw.pack(side=tk.LEFT, padx=(4, 0), fill=tk.X, expand=True)
+        self.cb_dispositivo_hw.bind("<<ComboboxSelected>>", self.actualizar_modo_dispositivo)
 
         frame_ip = ttk.Frame(frame_hw)
         frame_ip.pack(fill=tk.X, pady=(0, 3))
-        ttk.Label(frame_ip, text="IP ESP32:").pack(side=tk.LEFT)
+        self.lbl_ip = ttk.Label(frame_ip, text="IP ESP32:")
+        self.lbl_ip.pack(side=tk.LEFT)
         self.ent_esp32_ip = ttk.Entry(frame_ip, width=15, font=("Segoe UI", 10))
         self.ent_esp32_ip.insert(0, self.esp32_ip)
         self.ent_esp32_ip.pack(side=tk.LEFT, padx=(4, 0), fill=tk.X, expand=True)
 
         frame_onda = ttk.Frame(frame_hw)
         frame_onda.pack(fill=tk.X, pady=(0, 3))
-        ttk.Label(frame_onda, text="Onda de Salida:").pack(side=tk.LEFT)
+        self.lbl_onda_hw = ttk.Label(frame_onda, text="Onda de Salida:")
+        self.lbl_onda_hw.pack(side=tk.LEFT)
         self.cb_onda_hw = ttk.Combobox(
             frame_onda,
             values=["Onda Completa", "Media Onda"],
@@ -253,6 +269,32 @@ class InterfazGrafica:
                     self.timer_id = None
                 messagebox.showwarning("Error de Formato", "Por favor ingresa un número numérico válido para los segundos de refresco.")
 
+    def actualizar_modo_dispositivo(self, event=None):
+        """Gestiona la selección de dispositivo para la conexión al ESP32 (Rectificador vs Inversor).
+        Al elegir Inversor se bloquean las opciones de configuración de hardware."""
+        dispositivo = self.cb_dispositivo_hw.get() if hasattr(self, "cb_dispositivo_hw") else "Rectificador"
+        if dispositivo == "Inversor":
+            self.lbl_ip.config(foreground="gray")
+            self.ent_esp32_ip.config(state="disabled")
+            self.lbl_onda_hw.config(foreground="gray")
+            self.cb_onda_hw.config(state="disabled")
+            self.btn_enviar_hw.config(state="disabled")
+            self.lbl_estado_hw.config(
+                text="Estado: Modo Inversor (Opciones bloqueadas / En desarrollo)",
+                foreground="#7f8c8d"
+            )
+        else:
+            self.lbl_ip.config(foreground="#333333")
+            self.ent_esp32_ip.config(state="normal")
+            self.lbl_onda_hw.config(foreground="#333333")
+            self.cb_onda_hw.config(state="readonly")
+            self.btn_enviar_hw.config(state="normal")
+            self.lbl_estado_hw.config(
+                text="Estado: Desconectado",
+                foreground="#2c3e50"
+            )
+            self.actualizar_estado_alfa()
+
     def actualizar_estado_alfa(self, event=None):
         """Habilita o deshabilita los campos según la señal seleccionada y sincroniza el modo de onda sugerido"""
         idx = self.cb_tipo.current()
@@ -277,14 +319,21 @@ class InterfazGrafica:
 
         # Sincronizar selector de onda de hardware si se elige rectificador monofásico de media onda u onda completa
         if hasattr(self, "cb_onda_hw"):
-            if idx in [3, 4]:   # RMMO o RMMOC -> Media Onda
-                self.cb_onda_hw.current(1)
-            elif idx in [5, 6]: # RMOC o RMOCC -> Onda Completa
-                self.cb_onda_hw.current(0)
+            dispositivo = self.cb_dispositivo_hw.get() if hasattr(self, "cb_dispositivo_hw") else "Rectificador"
+            if dispositivo == "Rectificador":
+                if idx in [3, 4]:   # RMMO o RMMOC -> Media Onda
+                    self.cb_onda_hw.current(1)
+                elif idx in [5, 6]: # RMOC o RMOCC -> Onda Completa
+                    self.cb_onda_hw.current(0)
+            else:
+                self.cb_onda_hw.config(state="disabled")
 
     def solicitar_adc_hardware(self):
         """Solicita al ESP32 vía UDP las lecturas reales de tensión (D35) y corriente (D34)
         adquiridas durante un ciclo completo de red (GET_ADC -> ADC_DATA:...)."""
+        if hasattr(self, "cb_dispositivo_hw") and self.cb_dispositivo_hw.get() == "Inversor":
+            raise RuntimeError("La adquisición de muestras ADC para Inversor aún no está disponible (modo bloqueado / en desarrollo).")
+
         ip_ingresada = self.ent_esp32_ip.get().strip() if hasattr(self, 'ent_esp32_ip') else self.esp32_ip
         if not ip_ingresada:
             raise ValueError("Debe ingresar una dirección IP válida para el ESP32.")
@@ -340,6 +389,13 @@ class InterfazGrafica:
         """Lee el ángulo alfa y el modo de onda de salida (Media Onda / Onda Completa),
         valida los parámetros, transmite el comando vía UDP al microcontrolador ESP32
         y verifica la conexión aguardando activamente un acuse de recibo (ACK)."""
+        if hasattr(self, "cb_dispositivo_hw") and self.cb_dispositivo_hw.get() == "Inversor":
+            messagebox.showinfo(
+                "Modo Inversor",
+                "El control de hardware para el Inversor se encuentra en desarrollo y sus opciones están bloqueadas."
+            )
+            return
+
         try:
             # 0. Leer y validar sintaxis de la dirección IP
             ip_ingresada = self.ent_esp32_ip.get().strip() if hasattr(self, 'ent_esp32_ip') else self.esp32_ip
