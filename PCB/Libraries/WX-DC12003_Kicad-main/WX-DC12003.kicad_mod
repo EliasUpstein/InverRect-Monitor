@@ -1,13 +1,13 @@
 (footprint "WX-DC12003"
-	(version 20240108)
+	(version 20260206)
 	(generator "pcbnew")
-	(generator_version "8.0")
+	(generator_version "10.0")
 	(layer "F.Cu")
 	(property "Reference" "REF**"
 		(at 0.0508 0 0)
 		(unlocked yes)
 		(layer "F.SilkS")
-		(uuid "a2bdf400-896e-4fad-897d-9f8011577e0e")
+		(uuid "afbdd074-3deb-4640-bb38-e6b59317af3d")
 		(effects
 			(font
 				(size 1 1)
@@ -20,20 +20,7 @@
 		(at 0.1016 -0.3716 0)
 		(unlocked yes)
 		(layer "F.Fab")
-		(uuid "4cd5b329-94db-4e8f-b384-d8962a6ce998")
-		(effects
-			(font
-				(size 1 1)
-				(thickness 0.15)
-			)
-		)
-	)
-	(property "Footprint" "WX-DC12003:WX-DC12003"
-		(at 0.1016 -1.3716 0)
-		(unlocked yes)
-		(layer "F.Fab")
-		(hide yes)
-		(uuid "a9163dab-c07b-4727-b9f7-958d77679258")
+		(uuid "50ff25b8-1f33-48e9-8211-5e9dcfafdf00")
 		(effects
 			(font
 				(size 1 1)
@@ -46,7 +33,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "ed5d6211-b344-479d-a69e-5be15e13627e")
+		(uuid "b4485df2-ef94-4ec7-911a-7584fafb2078")
 		(effects
 			(font
 				(size 1 1)
@@ -59,7 +46,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "3641fceb-7963-48ed-98ad-09f62138787c")
+		(uuid "fe8a5c93-78f8-4a53-ab4a-fbfc5ef80cc3")
 		(effects
 			(font
 				(size 1 1)
@@ -68,6 +55,7 @@
 		)
 	)
 	(attr through_hole)
+	(duplicate_pad_numbers_are_jumpers no)
 	(fp_rect
 		(start -11.75 -8)
 		(end 11.75 8)
@@ -75,9 +63,9 @@
 			(width 0.1)
 			(type default)
 		)
-		(fill none)
+		(fill no)
 		(layer "F.SilkS")
-		(uuid "f326d048-b149-4eb6-b99e-18cbfb21fd0c")
+		(uuid "695b6281-a005-48c1-9528-8ef38a26cadb")
 	)
 	(fp_rect
 		(start -10.85 8)
@@ -86,9 +74,9 @@
 			(width 0.1)
 			(type default)
 		)
-		(fill none)
+		(fill no)
 		(layer "F.SilkS")
-		(uuid "23f5dfbb-4b68-448c-9303-40b510a1054c")
+		(uuid "3c758a98-3ba9-4997-82aa-b5460a4cbdd9")
 	)
 	(fp_rect
 		(start 4.25 8)
@@ -97,9 +85,9 @@
 			(width 0.1)
 			(type default)
 		)
-		(fill none)
+		(fill no)
 		(layer "F.SilkS")
-		(uuid "b82fce9b-85bb-403d-8ea8-9886079cba28")
+		(uuid "50a9117a-66e1-4e86-9b3e-e3d881890531")
 	)
 	(fp_rect
 		(start 8.85 8)
@@ -108,9 +96,9 @@
 			(width 0.1)
 			(type default)
 		)
-		(fill none)
+		(fill no)
 		(layer "F.SilkS")
-		(uuid "a7852d6a-af73-47c9-9f62-d00ee5230b35")
+		(uuid "9a92e3db-90f6-471e-9eac-5102b36965ff")
 	)
 	(fp_line
 		(start -11.938 -8.128)
@@ -120,7 +108,7 @@
 			(type default)
 		)
 		(layer "F.CrtYd")
-		(uuid "338067ee-36c3-4ee8-b062-9b8b56cb8099")
+		(uuid "e923598b-a78b-4d08-b041-9f20b7160fc7")
 	)
 	(fp_line
 		(start -11.938 10.922)
@@ -130,7 +118,7 @@
 			(type default)
 		)
 		(layer "F.CrtYd")
-		(uuid "7b7543e5-f97f-47d5-ae82-2657f04201fe")
+		(uuid "646757e9-ab53-4137-b656-1c626673ccb2")
 	)
 	(fp_line
 		(start -5.4356 8.1788)
@@ -140,7 +128,7 @@
 			(type default)
 		)
 		(layer "F.CrtYd")
-		(uuid "908d0b52-fec5-4b90-b03c-77ce808d0192")
+		(uuid "d6d6c1df-d865-4d8c-bbab-9dfbdfcbed65")
 	)
 	(fp_line
 		(start -5.4356 10.922)
@@ -150,7 +138,7 @@
 			(type default)
 		)
 		(layer "F.CrtYd")
-		(uuid "c5c6044e-e151-4a6e-9133-f35bb390da2b")
+		(uuid "f3b9f028-2d71-4dea-bcc5-39f2368d0c51")
 	)
 	(fp_line
 		(start 4.1148 8.1788)
@@ -160,7 +148,7 @@
 			(type default)
 		)
 		(layer "F.CrtYd")
-		(uuid "c9bb4d4e-cf86-47ca-8a7f-eed0de040f4a")
+		(uuid "5ebd8fcd-74ef-48a7-a411-839d450db84e")
 	)
 	(fp_line
 		(start 4.1148 10.922)
@@ -170,7 +158,7 @@
 			(type default)
 		)
 		(layer "F.CrtYd")
-		(uuid "5010c8af-93b1-494a-b396-4d595a082fc4")
+		(uuid "fe1204d0-110f-4289-a98b-7cd436a5da23")
 	)
 	(fp_line
 		(start 11.938 -8.128)
@@ -180,7 +168,7 @@
 			(type default)
 		)
 		(layer "F.CrtYd")
-		(uuid "9058de58-08de-4c27-9e79-a515c7eededa")
+		(uuid "a1cb21b8-5734-4453-8bdd-628902fc56e2")
 	)
 	(fp_line
 		(start 11.938 10.922)
@@ -190,13 +178,13 @@
 			(type default)
 		)
 		(layer "F.CrtYd")
-		(uuid "cd9775c2-4224-4553-9049-76710a1ec9fb")
+		(uuid "62a1ae51-32e4-4644-9585-12e8edb771bd")
 	)
 	(fp_text user "${REFERENCE}"
 		(at 0.1016 1.1284 0)
 		(unlocked yes)
 		(layer "F.Fab")
-		(uuid "a51b580d-7c02-46dc-ba08-466855f20b1d")
+		(uuid "1d965bf6-29f1-4fea-9216-adf4b198a9ec")
 		(effects
 			(font
 				(size 1 1)
@@ -210,7 +198,7 @@
 		(drill 0.762)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "b62318ea-66e1-419c-b773-a27050eb5b45")
+		(uuid "7dc1514d-bb40-430f-9f94-7a743a2d6461")
 	)
 	(pad "2" thru_hole rect
 		(at 5.4 9.5)
@@ -218,7 +206,7 @@
 		(drill 0.762)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "8f048d6b-b9a3-4d6e-9d40-8806373130cd")
+		(uuid "753e3866-f1c3-4428-ada2-cf98b580fec3")
 	)
 	(pad "3" thru_hole rect
 		(at -7.3 9.5)
@@ -226,7 +214,7 @@
 		(drill 0.762)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "3531a550-71c8-42b9-9a68-8ff993a063cb")
+		(uuid "3195ea15-b5bc-4e50-8249-e0719bae73b3")
 	)
 	(pad "4" thru_hole rect
 		(at -9.84 9.5)
@@ -234,8 +222,9 @@
 		(drill 0.762)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "99cc6f06-cdbd-48e1-b93b-728627df0ee4")
+		(uuid "fef58533-170b-47af-b059-3cbfafbce684")
 	)
+	(embedded_fonts no)
 	(model "C:/Users/Lenovo/Documents/KiCad/8.0/footprints/WX-DC12003.pretty/WX-DC12003.step"
 		(offset
 			(xyz 12.7 8.8 1.54)
