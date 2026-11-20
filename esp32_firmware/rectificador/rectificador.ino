@@ -6,15 +6,15 @@
 /**
  * ============================================================================
  * Proyecto: InverRect-Monitor - Control de Rectificador con ESP32
- * Archivo: esp32_firmware/esp32_firmware.ino (Sketch compatible con Arduino IDE)
- * Carpeta: esp32_firmware/
+ * Archivo: esp32_firmware/rectificador/rectificador.ino (Sketch compatible con Arduino IDE)
+ * Carpeta: esp32_firmware/rectificador/
  * Arquitectura: Dual-Core (FreeRTOS) + Disparo Único (Media Onda / Onda Completa)
  *               + Adquisición Síncrona ADC (Tensión D35 / Corriente ACS712 D34) + SCADA UDP
  *
  * Este sketch está estructurado para abrirse e instalarse directamente desde
  * Arduino IDE o PlatformIO. Cumple con la convención de Arduino IDE donde
  * el nombre del archivo principal (.ino) coincide exactamente con el nombre de
- * la carpeta contenedora (esp32_firmware).
+ * la carpeta contenedora (rectificador).
  * ============================================================================
  */
 

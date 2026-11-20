@@ -30,6 +30,10 @@ class InterfazGrafica:
         style.configure("TLabelframe.Label", background="#f4f6f9", font=("Segoe UI", 12, "bold"), foreground="#2c3e50")
         style.configure("TButton", font=("Segoe UI", 11, "bold"), padding=5, background="#3498db", foreground="white")
         style.map("TButton", background=[("active", "#2980b9")])
+        style.configure("Danger.TButton", font=("Segoe UI", 10, "bold"), padding=3, background="#c0392b", foreground="white")
+        style.map("Danger.TButton", background=[("active", "#a93226")])
+        style.configure("Success.TButton", font=("Segoe UI", 10, "bold"), padding=3, background="#27ae60", foreground="white")
+        style.map("Success.TButton", background=[("active", "#1e8449")])
         style.configure("TFrame", background="#f4f6f9")
         style.configure("TCheckbutton", background="#f4f6f9", font=("Segoe UI", 11))
         
@@ -195,6 +199,7 @@ class InterfazGrafica:
         )
         self.cb_onda_hw.current(0) # Por defecto Onda Completa
         self.cb_onda_hw.pack(side=tk.LEFT, padx=(4, 0), fill=tk.X, expand=True)
+        self.cb_onda_hw.bind("<<ComboboxSelected>>", self.al_cambiar_onda_hw)
 
         self.lbl_estado_hw = ttk.Label(frame_hw, text="Estado: Desconectado", font=("Segoe UI", 10, "bold"))
         self.lbl_estado_hw.pack(anchor="w", pady=(0, 3))
@@ -206,6 +211,23 @@ class InterfazGrafica:
             padding=4
         )
         self.btn_enviar_hw.pack(fill=tk.X)
+
+        # Controles de seguridad exclusivos del modo Inversor (ocultos en modo Rectificador)
+        self.frame_inv_seguridad = ttk.Frame(frame_hw)
+        self.btn_inv_stop = ttk.Button(
+            self.frame_inv_seguridad,
+            text="STOP (Emergencia)",
+            style="Danger.TButton",
+            command=lambda: self.enviar_comando_simple_hw("STOP")
+        )
+        self.btn_inv_stop.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
+        self.btn_inv_start = ttk.Button(
+            self.frame_inv_seguridad,
+            text="START (Reanudar)",
+            style="Success.TButton",
+            command=lambda: self.enviar_comando_simple_hw("START")
+        )
+        self.btn_inv_start.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 0))
 
         # --- Resultados en Texto ---
         frame_resultados = ttk.LabelFrame(frame_izq, text="Resultados", padding="8")
@@ -271,33 +293,46 @@ class InterfazGrafica:
 
     def actualizar_modo_dispositivo(self, event=None):
         """Gestiona la selección de dispositivo para la conexión al ESP32 (Rectificador vs Inversor).
-        Al elegir Inversor se bloquean las opciones de configuración de hardware."""
+        Adapta dinámicamente el selector de onda, los controles de seguridad y la validación de α."""
         dispositivo = self.cb_dispositivo_hw.get() if hasattr(self, "cb_dispositivo_hw") else "Rectificador"
+        self.lbl_ip.config(foreground="#333333")
+        self.ent_esp32_ip.config(state="normal")
+        self.lbl_onda_hw.config(foreground="#333333")
+        self.cb_onda_hw.config(state="readonly")
+        self.btn_enviar_hw.config(state="normal")
+
         if dispositivo == "Inversor":
-            self.lbl_ip.config(foreground="gray")
-            self.ent_esp32_ip.config(state="disabled")
-            self.lbl_onda_hw.config(foreground="gray")
-            self.cb_onda_hw.config(state="disabled")
-            self.btn_enviar_hw.config(state="disabled")
+            self.cb_onda_hw.config(values=["Cuadrada (α=0°)", "Cuasi-cuadrada", "Jumper Físico (HW)"])
+            idx = self.cb_tipo.current() if hasattr(self, "cb_tipo") else 0
+            self.cb_onda_hw.current(1 if idx == 2 else 0)
+            self.frame_inv_seguridad.pack(fill=tk.X, pady=(4, 0))
             self.lbl_estado_hw.config(
-                text="Estado: Modo Inversor (Opciones bloqueadas / En desarrollo)",
-                foreground="#7f8c8d"
+                text="Estado: Modo Inversor (Listo / Desconectado)",
+                foreground="#2c3e50"
             )
         else:
-            self.lbl_ip.config(foreground="#333333")
-            self.ent_esp32_ip.config(state="normal")
-            self.lbl_onda_hw.config(foreground="#333333")
-            self.cb_onda_hw.config(state="readonly")
-            self.btn_enviar_hw.config(state="normal")
+            self.frame_inv_seguridad.pack_forget()
+            self.cb_onda_hw.config(values=["Onda Completa", "Media Onda"])
+            self.cb_onda_hw.current(0)
             self.lbl_estado_hw.config(
                 text="Estado: Desconectado",
                 foreground="#2c3e50"
             )
-            self.actualizar_estado_alfa()
+
+        self.actualizar_estado_alfa()
+
+    def al_cambiar_onda_hw(self, event=None):
+        """Habilita la edición de α si en modo Inversor se elige 'Cuasi-cuadrada'."""
+        dispositivo = self.cb_dispositivo_hw.get() if hasattr(self, "cb_dispositivo_hw") else "Rectificador"
+        if dispositivo == "Inversor" and self.cb_onda_hw.get() == "Cuasi-cuadrada":
+            self.ent_alfa.config(state="normal")
+            self.cb_unidad_alfa.config(state="readonly")
 
     def actualizar_estado_alfa(self, event=None):
         """Habilita o deshabilita los campos según la señal seleccionada y sincroniza el modo de onda sugerido"""
         idx = self.cb_tipo.current()
+        dispositivo = self.cb_dispositivo_hw.get() if hasattr(self, "cb_dispositivo_hw") else "Rectificador"
+
         # Alfa aplica en Cuasi-cuadrada (2), RMMOC (4), RMOCC (6), RTMOC (8), RTOCC (10)
         # y Muestras ADC (11) para envío al hardware
         if idx in [2, 4, 6, 8, 10, 11]:
@@ -307,7 +342,7 @@ class InterfazGrafica:
             self.ent_alfa.config(state="disabled")
             self.cb_unidad_alfa.config(state="disabled")
 
-        # En modo "11. Muestras ADC", V e I se miden directamente de los pines D35 y D34 del ESP32
+        # En modo "11. Muestras ADC", V e I se miden directamente desde el ESP32
         if idx == 11:
             self.ent_vp.config(state="disabled")
             self.ent_carga.config(state="disabled")
@@ -317,23 +352,23 @@ class InterfazGrafica:
             self.ent_carga.config(state="normal")
             self.ent_reactancia.config(state="normal")
 
-        # Sincronizar selector de onda de hardware si se elige rectificador monofásico de media onda u onda completa
+        # Sincronizar selector de onda de hardware según la topología elegida
         if hasattr(self, "cb_onda_hw"):
-            dispositivo = self.cb_dispositivo_hw.get() if hasattr(self, "cb_dispositivo_hw") else "Rectificador"
             if dispositivo == "Rectificador":
                 if idx in [3, 4]:   # RMMO o RMMOC -> Media Onda
                     self.cb_onda_hw.current(1)
                 elif idx in [5, 6]: # RMOC o RMOCC -> Onda Completa
                     self.cb_onda_hw.current(0)
             else:
-                self.cb_onda_hw.config(state="disabled")
+                if idx == 1:        # 1. Cuadrada
+                    self.cb_onda_hw.current(0)
+                elif idx == 2:      # 2. Cuasi-cuadrada
+                    self.cb_onda_hw.current(1)
+                if self.cb_onda_hw.get() == "Cuasi-cuadrada":
+                    self.ent_alfa.config(state="normal")
+                    self.cb_unidad_alfa.config(state="readonly")
 
-    def solicitar_adc_hardware(self):
-        """Solicita al ESP32 vía UDP las lecturas reales de tensión (D35) y corriente (D34)
-        adquiridas durante un ciclo completo de red (GET_ADC -> ADC_DATA:...)."""
-        if hasattr(self, "cb_dispositivo_hw") and self.cb_dispositivo_hw.get() == "Inversor":
-            raise RuntimeError("La adquisición de muestras ADC para Inversor aún no está disponible (modo bloqueado / en desarrollo).")
-
+    def _validar_y_obtener_ip_esp32(self) -> str:
         ip_ingresada = self.ent_esp32_ip.get().strip() if hasattr(self, 'ent_esp32_ip') else self.esp32_ip
         if not ip_ingresada:
             raise ValueError("Debe ingresar una dirección IP válida para el ESP32.")
@@ -342,6 +377,12 @@ class InterfazGrafica:
         except ValueError:
             raise ValueError(f"'{ip_ingresada}' no es una dirección IP válida (ej. 192.168.1.50).")
         self.esp32_ip = ip_ingresada
+        return self.esp32_ip
+
+    def solicitar_adc_hardware(self):
+        """Solicita al ESP32 (Rectificador o Inversor) vía UDP los vectores reales de tensión y corriente
+        adquiridos durante un ciclo completo de 50 Hz (GET_ADC -> ADC_DATA:...)."""
+        self._validar_y_obtener_ip_esp32()
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(1.2)
@@ -385,115 +426,145 @@ class InterfazGrafica:
         i_hw = np.array(i_lista, dtype=float)
         return v_hw, i_hw, alfa_hw, onda_hw
 
-    def enviar_angulo_hardware(self):
-        """Lee el ángulo alfa y el modo de onda de salida (Media Onda / Onda Completa),
-        valida los parámetros, transmite el comando vía UDP al microcontrolador ESP32
-        y verifica la conexión aguardando activamente un acuse de recibo (ACK)."""
-        if hasattr(self, "cb_dispositivo_hw") and self.cb_dispositivo_hw.get() == "Inversor":
-            messagebox.showinfo(
-                "Modo Inversor",
-                "El control de hardware para el Inversor se encuentra en desarrollo y sus opciones están bloqueadas."
-            )
-            return
+    def _enviar_trama_udp_con_ack(self, mensaje: str):
+        """Transmite un comando UDP al ESP32 y verifica activamente el acuse de recibo (ACK/NACK)."""
+        self.lbl_estado_hw.config(
+            text=f"Estado: Verificando conexión con {self.esp32_ip}:{self.esp32_port}...",
+            foreground="#2980b9"
+        )
+        self.root.update_idletasks()
 
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1.2)
+        try:
+            sock.sendto(mensaje.encode('utf-8'), (self.esp32_ip, self.esp32_port))
+            data, addr = sock.recvfrom(1024)
+            respuesta = data.decode('utf-8').strip()
+
+            if respuesta.startswith("ACK:STOP"):
+                self.lbl_estado_hw.config(
+                    text="Estado: PARADA DE EMERGENCIA ACTIVA (Puente en LOW)",
+                    foreground="#c0392b"
+                )
+            elif (respuesta.startswith("ACK:ALFA:") or respuesta.startswith("ACK:MODO:")
+                  or respuesta.startswith("ACK:ONDA:") or respuesta.startswith("ACK:START")):
+                self.lbl_estado_hw.config(
+                    text=f"Estado: Conectado (ESP32 confirmó {respuesta})",
+                    foreground="#27ae60"
+                )
+            elif respuesta.startswith("NACK:ESTOP_ACTIVE"):
+                self.lbl_estado_hw.config(
+                    text="Estado: Rechazado (Parada de Emergencia activa - presione START)",
+                    foreground="#e67e22"
+                )
+                messagebox.showwarning(
+                    "Parada de Emergencia Activa",
+                    "El inversor se encuentra en Parada de Emergencia (STOP).\n"
+                    "Presione 'START (Reanudar)' para realizar la pre-carga segura de bootstrap y reactivar el puente."
+                )
+            elif respuesta.startswith("NACK:"):
+                self.lbl_estado_hw.config(
+                    text=f"Estado: Rechazado por ESP32 ({respuesta})",
+                    foreground="#e67e22"
+                )
+                messagebox.showwarning(
+                    "Comando Rechazado por Hardware",
+                    f"El ESP32 en {addr[0]} recibió el paquete pero rechazó el comando:\n{respuesta}"
+                )
+            else:
+                self.lbl_estado_hw.config(
+                    text=f"Estado: Respuesta desconocida ({respuesta})",
+                    foreground="#e67e22"
+                )
+        except (socket.timeout, ConnectionResetError):
+            self.lbl_estado_hw.config(
+                text=f"Estado: Sin respuesta (Timeout / Inaccesible en {self.esp32_ip}:{self.esp32_port})",
+                foreground="#c0392b"
+            )
+            messagebox.showerror(
+                "Error de Conexión con Hardware",
+                f"No se recibió confirmación (ACK) del ESP32 en {self.esp32_ip}:{self.esp32_port}.\n\n"
+                f"El paquete UDP no pudo ser verificado. Asegúrese de que:\n"
+                f"1. La dirección IP ({self.esp32_ip}) pertenezca efectivamente al ESP32.\n"
+                f"2. El ESP32 se encuentre encendido y conectado a la misma red Wi-Fi.\n"
+                f"3. No existan bloqueos de firewall para tráfico UDP en el puerto {self.esp32_port}."
+            )
+        finally:
+            sock.close()
+
+    def enviar_comando_simple_hw(self, comando: str):
+        """Envía comandos directos de control de seguridad al Inversor (STOP, START, HW)."""
+        try:
+            self._validar_y_obtener_ip_esp32()
+            self._enviar_trama_udp_con_ack(comando)
+        except ValueError as e:
+            self.lbl_estado_hw.config(text="Estado: IP inválida", foreground="#c0392b")
+            messagebox.showerror("Error de Dirección IP", str(e))
+        except (socket.error, OSError) as e:
+            self.lbl_estado_hw.config(
+                text=f"Estado: Error de red ({self.esp32_ip}:{self.esp32_port})",
+                foreground="#c0392b"
+            )
+            messagebox.showerror(
+                "Error de Socket UDP",
+                f"Fallo de socket de red al intentar comunicar con {self.esp32_ip}:{self.esp32_port}.\n\nDetalle: {e}"
+            )
+
+    def enviar_angulo_hardware(self):
+        """Lee el ángulo alfa y el modo de onda de salida según el dispositivo activo
+        (Rectificador o Inversor), valida los parámetros, transmite el comando vía UDP
+        al ESP32 y verifica la conexión aguardando activamente un acuse de recibo (ACK)."""
         try:
             # 0. Leer y validar sintaxis de la dirección IP
-            ip_ingresada = self.ent_esp32_ip.get().strip() if hasattr(self, 'ent_esp32_ip') else self.esp32_ip
-            if not ip_ingresada:
-                raise ValueError("Debe ingresar una dirección IP válida para el ESP32.")
-            try:
-                ipaddress.ip_address(ip_ingresada)
-            except ValueError:
-                raise ValueError(f"'{ip_ingresada}' no es una dirección IP válida (ej. 192.168.1.50).")
-            self.esp32_ip = ip_ingresada
+            self._validar_y_obtener_ip_esp32()
 
-            # 1. Determinar el modo de onda de salida seleccionado (Media Onda vs Onda Completa)
+            dispositivo = self.cb_dispositivo_hw.get() if hasattr(self, "cb_dispositivo_hw") else "Rectificador"
             onda_seleccionada = self.cb_onda_hw.get() if hasattr(self, "cb_onda_hw") else "Onda Completa"
-            onda_cmd = "MEDIA" if onda_seleccionada == "Media Onda" else "COMPLETA"
-
-            # 2. Leer el valor actual del campo self.ent_alfa y tipo de señal
             valor_raw = self.ent_alfa.get().strip() if hasattr(self, 'ent_alfa') else ""
             idx_tipo = self.cb_tipo.current() if hasattr(self, 'cb_tipo') else 0
 
-            # Si se seleccionó "11. Muestras ADC" o se ingresó "ADC", enviar comando de modo potenciómetro
-            if idx_tipo == 11 or valor_raw.upper() == "ADC":
-                cmd_alfa = "ALFA:ADC"
+            if dispositivo == "Inversor":
+                if onda_seleccionada == "Jumper Físico (HW)" or valor_raw.upper() == "HW":
+                    mensaje = "HW"
+                elif onda_seleccionada == "Cuadrada (α=0°)":
+                    mensaje = "ALFA:0.0;ONDA:CUADRADA"
+                else:
+                    # Onda Cuasi-cuadrada con ángulo α configurable (rango seguro 0° a 60°)
+                    angulo = float(valor_raw)
+                    if np.isnan(angulo) or np.isinf(angulo):
+                        raise ValueError("El valor ingresado no es un número finito válido.")
+
+                    unidad = self.cb_unidad_alfa.get() if hasattr(self, "cb_unidad_alfa") else "Grados"
+                    alfa_deg = float(np.degrees(angulo)) if unidad == "Radianes" else angulo
+
+                    if not (0.0 <= alfa_deg <= 60.0):
+                        raise ValueError(
+                            f"Para el Inversor, el ángulo α ({alfa_deg:.2f}°) debe estar en el rango seguro (0° a 60°)."
+                        )
+                    mensaje = f"ALFA:{alfa_deg:.1f};ONDA:CUASICUADRADA"
             else:
-                angulo = float(valor_raw)
+                # Modo Rectificador: Media Onda / Onda Completa (0° a 180° o potenciómetro ADC)
+                onda_cmd = "MEDIA" if onda_seleccionada == "Media Onda" else "COMPLETA"
 
-                # Validar que no sea NaN o Infinito
-                if np.isnan(angulo) or np.isinf(angulo):
-                    raise ValueError("El valor ingresado no es un número finito válido.")
-
-                # Conversión auxiliar si la unidad seleccionada es Radianes
-                unidad = self.cb_unidad_alfa.get() if hasattr(self, "cb_unidad_alfa") else "Grados"
-                if unidad == "Radianes":
-                    alfa_deg = float(np.degrees(angulo))
+                if idx_tipo == 11 or valor_raw.upper() == "ADC":
+                    cmd_alfa = "ALFA:ADC"
                 else:
-                    alfa_deg = angulo
+                    angulo = float(valor_raw)
+                    if np.isnan(angulo) or np.isinf(angulo):
+                        raise ValueError("El valor ingresado no es un número finito válido.")
 
-                # Validar rango físico posible para el disparo (entre 0 y 180 grados)
-                if not (0.0 <= alfa_deg <= 180.0):
-                    raise ValueError(
-                        f"El ángulo ({alfa_deg:.2f}°) está fuera del rango físico permitido (0° a 180°)."
-                    )
+                    unidad = self.cb_unidad_alfa.get() if hasattr(self, "cb_unidad_alfa") else "Grados"
+                    alfa_deg = float(np.degrees(angulo)) if unidad == "Radianes" else angulo
 
-                cmd_alfa = f"ALFA:{alfa_deg:.1f}"
+                    if not (0.0 <= alfa_deg <= 180.0):
+                        raise ValueError(
+                            f"El ángulo ({alfa_deg:.2f}°) está fuera del rango físico permitido (0° a 180°)."
+                        )
+                    cmd_alfa = f"ALFA:{alfa_deg:.1f}"
 
-            # Generar mensaje unificado con ángulo y selección de onda de salida
-            mensaje = f"{cmd_alfa};ONDA:{onda_cmd}"
+                mensaje = f"{cmd_alfa};ONDA:{onda_cmd}"
 
-            # Feedback visual de envío en progreso
-            self.lbl_estado_hw.config(
-                text=f"Estado: Verificando conexión con {self.esp32_ip}:{self.esp32_port}...",
-                foreground="#2980b9"
-            )
-            self.root.update_idletasks()
-
-            # Transmisión y verificación bidireccional vía socket UDP
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(1.2) # Timeout de 1.2 segundos para esperar el ACK del ESP32
-            try:
-                sock.sendto(mensaje.encode('utf-8'), (self.esp32_ip, self.esp32_port))
-
-                # Espera obligatoria del paquete de confirmación (ACK) emitido por el ESP32
-                data, addr = sock.recvfrom(1024)
-                respuesta = data.decode('utf-8').strip()
-
-                if respuesta.startswith("ACK:ALFA:") or respuesta.startswith("ACK:MODO:") or respuesta.startswith("ACK:ONDA:"):
-                    self.lbl_estado_hw.config(
-                        text=f"Estado: Conectado (ESP32 confirmó {respuesta})",
-                        foreground="#27ae60"
-                    )
-                elif respuesta.startswith("NACK:"):
-                    self.lbl_estado_hw.config(
-                        text=f"Estado: Rechazado por ESP32 ({respuesta})",
-                        foreground="#e67e22"
-                    )
-                    messagebox.showwarning(
-                        "Comando Rechazado por Hardware",
-                        f"El ESP32 en {addr[0]} recibió el paquete pero rechazó el comando:\n{respuesta}"
-                    )
-                else:
-                    self.lbl_estado_hw.config(
-                        text=f"Estado: Respuesta desconocida ({respuesta})",
-                        foreground="#e67e22"
-                    )
-            except (socket.timeout, ConnectionResetError):
-                self.lbl_estado_hw.config(
-                    text=f"Estado: Sin respuesta (Timeout / Inaccesible en {self.esp32_ip}:{self.esp32_port})",
-                    foreground="#c0392b"
-                )
-                messagebox.showerror(
-                    "Error de Conexión con Hardware",
-                    f"No se recibió confirmación (ACK) del ESP32 en {self.esp32_ip}:{self.esp32_port}.\n\n"
-                    f"El paquete UDP no pudo ser verificado. Asegúrese de que:\n"
-                    f"1. La dirección IP ({self.esp32_ip}) pertenezca efectivamente al ESP32.\n"
-                    f"2. El ESP32 se encuentre encendido y conectado a la misma red Wi-Fi.\n"
-                    f"3. No existan bloqueos de firewall para tráfico UDP en el puerto {self.esp32_port}."
-                )
-            finally:
-                sock.close()
+            self._enviar_trama_udp_con_ack(mensaje)
 
         except ValueError as e:
             self.lbl_estado_hw.config(
@@ -544,10 +615,16 @@ class InterfazGrafica:
                 v, i = self.analizador.procesar_muestras_adc(v_hw, i_hw)
                 alfa_rad = np.radians(alfa_hw)
                 vp_escala = max(float(np.max(np.abs(v))), 1.0)
-                self.lbl_estado_hw.config(
-                    text=f"Estado: ADC recibido (α={alfa_hw:.1f}°, Onda={onda_hw_adc}, {len(v_hw)} muestras)",
-                    foreground="#27ae60"
-                )
+                if onda_hw_adc == "STOP":
+                    self.lbl_estado_hw.config(
+                        text=f"Estado: Inversor en STOP (puente apagado, {len(v_hw)} muestras)",
+                        foreground="#c0392b"
+                    )
+                else:
+                    self.lbl_estado_hw.config(
+                        text=f"Estado: ADC recibido (α={alfa_hw:.1f}°, Onda={onda_hw_adc}, {len(v_hw)} muestras)",
+                        foreground="#27ae60"
+                    )
             else:
                 # Modos 0..10: Simulación teórica según parámetros de entrada
                 vp = float(self.ent_vp.get())
@@ -636,11 +713,18 @@ class InterfazGrafica:
                     self.ax1.axvline(x=7 * np.pi / 6 + alfa_rad + k, color='#e74c3c', linestyle=':')
                     self.ax1.axvline(x=3 * np.pi / 2 + alfa_rad + k, color='#e74c3c', linestyle=':')
                     self.ax1.axvline(x=11 * np.pi / 6 + alfa_rad + k, color='#e74c3c', linestyle=':')
-            elif idx_senal == 11: # Muestras ADC reales del ESP32
-                for k in [0, 2 * np.pi]:
-                    self.ax1.axvline(x=alfa_rad + k, color='#e74c3c', linestyle=':', label='Corte Alfa' if k == 0 else "")
-                    if onda_hw_adc == "COMPLETA":
+            elif idx_senal == 11: # Muestras ADC reales del ESP32 (Rectificador o Inversor)
+                if onda_hw_adc == "CUASICUADRADA" and alfa_rad > 0:
+                    for k in [0, 2 * np.pi]:
+                        self.ax1.axvline(x=alfa_rad + k, color='#e74c3c', linestyle=':', label='Corte Alfa' if k == 0 else "")
+                        self.ax1.axvline(x=np.pi - alfa_rad + k, color='#e74c3c', linestyle=':')
                         self.ax1.axvline(x=np.pi + alfa_rad + k, color='#e74c3c', linestyle=':')
+                        self.ax1.axvline(x=2 * np.pi - alfa_rad + k, color='#e74c3c', linestyle=':')
+                elif onda_hw_adc in ("COMPLETA", "MEDIA"):
+                    for k in [0, 2 * np.pi]:
+                        self.ax1.axvline(x=alfa_rad + k, color='#e74c3c', linestyle=':', label='Corte Alfa' if k == 0 else "")
+                        if onda_hw_adc == "COMPLETA":
+                            self.ax1.axvline(x=np.pi + alfa_rad + k, color='#e74c3c', linestyle=':')
 
             # Dibujar líneas de referencia puntuada tenue para Vavg, Vrms, Iavg, Irms según checkboxes
             dibujar_vavg = self.var_vavg.get() if hasattr(self, 'var_vavg') else False
@@ -754,7 +838,7 @@ class InterfazGrafica:
             )
             messagebox.showerror(
                 "Error de Lectura ADC (ESP32)",
-                f"No fue posible recibir las muestras ADC de tensión (D35) y corriente (D34) "
+                f"No fue posible recibir las muestras ADC de tensión y corriente "
                 f"desde el ESP32 en {self.esp32_ip}:{self.esp32_port}.\n\nDetalle: {e}"
             )
         except ValueError as e:

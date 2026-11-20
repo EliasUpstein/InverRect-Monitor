@@ -78,9 +78,16 @@ InverRect-Monitor/
 │   ├── main.py              # Controlador: Ciclo de vida de la aplicación
 │   └── README.md            # 📖 Documentación técnica completa del software de PC
 │
-├── esp32_firmware/          # Firmware embebido para el microcontrolador ESP32
-│   ├── esp32_firmware.ino   # Firmware Dual-Core compatible con Arduino IDE (FreeRTOS, ZCD, ADC, UDP, OTA)
-│   └── README.md            # 📖 Documentación técnica de hardware, pines y firmware
+├── esp32_firmware/          # Firmwares embebidos para el microcontrolador ESP32 (Arduino IDE)
+│   ├── rectificador/        # Sketch del Rectificador Monofásico (ZCD, SCR, ADC, UDP, OTA)
+│   │   └── rectificador.ino
+│   ├── inversor/            # Sketch modular del Inversor Monofásico (MCPWM 50Hz, Dead-Time, ADC1, UDP, OTA)
+│   │   ├── inversor.ino
+│   │   ├── config.h
+│   │   ├── inverter_mcpwm.h / .cpp
+│   │   ├── acquisition.h / .cpp
+│   │   └── comms.h / .cpp
+│   └── README.md            # 📖 Documentación técnica de hardware, pines, OTA y prueba en osciloscopio
 │
 ├── assets/                  # Diagramas y capturas de pantalla
 ├── .gitignore               # Filtros de Git para entornos Python y compilaciones C++
@@ -163,10 +170,10 @@ python pc_software/main.py
 ```
 
 ### Paso 4 (Opcional): Cargar el Firmware al ESP32
-1. Abrir la carpeta `esp32_firmware/` en PlatformIO o Arduino IDE.
-2. Configurar `WIFI_SSID` y `WIFI_PASSWORD` en `esp32_firmware/main.cpp`.
-3. Flashear el microcontrolador y observar la IP en el Monitor Serie (115200 bps).
-4. Configurar la IP en `pc_software/interfaz.py` para habilitar el control inalámbrico.
+1. Abrir `esp32_firmware/rectificador/rectificador.ino` o `esp32_firmware/inversor/inversor.ino` en Arduino IDE (o PlatformIO).
+2. Configurar `WIFI_SSID` y `WIFI_PASSWORD` en el sketch (para el inversor, en `esp32_firmware/inversor/config.h`).
+3. Flashear el microcontrolador por primera vez vía USB y observar la IP en el Monitor Serie (115200 bps). Las siguientes actualizaciones pueden realizarse por **ArduinoOTA** (`esp32-rmmoc` o `esp32-inversor`).
+4. Seleccionar el dispositivo (`Rectificador` o `Inversor`) e ingresar la IP en la interfaz gráfica de PC.
 
 ---
 
