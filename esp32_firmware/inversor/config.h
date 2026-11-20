@@ -37,10 +37,7 @@ constexpr int PIN_WAVE_SELECTOR = 27; // U8 IO27 -> /WS (configurar INPUT_PULLUP
 constexpr int PIN_ADC_VP    = 36;   // U8 SENSOR_VP (ADC1_CH0) -> /ADC_VP (R6=330k / R7=3.3k en /IP+)
 constexpr int PIN_ADC_VN    = 35;   // U8 IO35      (ADC1_CH7) -> /ADC_VN (R9=330k / R10=3.3k en /VL_n)
 constexpr int PIN_ADC_VIOUT = 39;   // U8 SENSOR_VN (ADC1_CH3) -> /Viout  (ACS712-20A + R11=1k / R12=2k)
-
-// Detector óptico de polaridad de salida (U6: PC817 con pull-up R8=10k a 3.3V)
-// LOW cuando V_out > 0 (+VDC en /IP+ respecto a /VL_n), HIGH cuando V_out <= 0.
-constexpr int PIN_VZCD = 13;        // U8 IO13 -> /Vzcd (diagnóstico / verificación de salida)
+// Nota: El detector de cruce por cero (GPIO 13 / Vzcd) no se utiliza en el inversor.
 
 // ============================================================================
 // 2. PARÁMETROS DEL INVERSOR, MCPWM Y SEGURIDAD (ANTI SHOOT-THROUGH)

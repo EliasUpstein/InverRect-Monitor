@@ -196,8 +196,7 @@ static void pollSerialConsole() {
                       (st.wave_mode == WAVE_QUASI_SQUARE) ? "CUASICUADRADA" : "CUADRADA",
                       st.alpha_deg,
                       (unsigned)DEAD_TIME_US);
-        Serial.printf("         Vzcd=%s | OffsetACS=%.4f V | Ultimo ciclo V=[%.1f, %.1f] V | I=[%.3f, %.3f] A\n",
-                      acquisitionIsVzcdPositive() ? "POS (LOW)" : "ZERO/NEG (HIGH)",
+        Serial.printf("         OffsetACS=%.4f V | Ultimo ciclo V=[%.1f, %.1f] V | I=[%.3f, %.3f] A\n",
                       acquisitionGetAcsOffsetPinV(), vmin, vmax, imin, imax);
     } else {
         char *endptr = nullptr;
@@ -275,7 +274,7 @@ void setup() {
     commsStartTaskOnCore0();
 
     Serial.println("[Core 1] Pines activos -> Pierna P: Vin1=IO33, Vin4=IO32 | Pierna N: Vin2=IO26, Vin3=IO25");
-    Serial.println("[Core 1] ADC1 -> ADC_VP=IO36, ADC_VN=IO35, Viout=IO39 | WS=IO27 | Vzcd=IO13");
+    Serial.println("[Core 1] ADC1 -> ADC_VP=IO36, ADC_VN=IO35, Viout=IO39 | WS=IO27");
     Serial.println("[Serial] Comandos disponibles: CUADRADA | CUASI | <0..60> | HW | STOP | START | STATUS");
 }
 

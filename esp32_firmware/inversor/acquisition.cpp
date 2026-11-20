@@ -63,7 +63,6 @@ void acquisitionInitPins() {
     pinMode(PIN_ADC_VP, INPUT);
     pinMode(PIN_ADC_VN, INPUT);
     pinMode(PIN_ADC_VIOUT, INPUT);
-    pinMode(PIN_VZCD, INPUT); // Pull-up externo R8 = 10 kOhm a +3.3V en el PCB
 
     analogReadResolution(12);
     analogSetAttenuation(ADC_11db);
@@ -154,9 +153,4 @@ void acquisitionGetLatestCycle(float out_v[NUM_MUESTRAS_CICLO], float out_i[NUM_
         out_i[k] = s_readyI[k];
     }
     portEXIT_CRITICAL(&g_stateMux);
-}
-
-bool acquisitionIsVzcdPositive() {
-    // PC817 tira /Vzcd a LOW cuando V(IP+) > V(VL_n)
-    return (digitalRead(PIN_VZCD) == LOW);
 }

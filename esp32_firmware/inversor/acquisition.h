@@ -17,7 +17,7 @@
  * ============================================================================
  */
 
-// Configura los pines ADC1 y Vzcd
+// Configura los pines ADC1
 void acquisitionInitPins();
 
 // Calibra el offset en reposo del ACS712 (llamar SOLO con el puente H en LOW / 0 A)
@@ -31,7 +31,3 @@ void acquisitionPoll();
 
 // Copia de forma atómica el último ciclo completo de V[64] e I[64] hacia buffers del llamador (Core 0)
 void acquisitionGetLatestCycle(float out_v[NUM_MUESTRAS_CICLO], float out_i[NUM_MUESTRAS_CICLO]);
-
-// Lectura de diagnóstico del optoacoplador de polaridad de salida Vzcd (GPIO 13)
-// Retorna true si V_out > 0 (PC817 conduciendo -> pin LOW), false si pin HIGH
-bool acquisitionIsVzcdPositive();

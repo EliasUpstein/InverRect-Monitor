@@ -96,7 +96,8 @@ Diseñado para el hardware **Puente H completo** (`4x IRF840A`, `2x IR2110`, bus
 | **`ADC_VP`** | `J2_3` | `GPIO 36` (`VP`) | `ADC1_CH0` | `R6=330k / R7=3.3k` en `/IP+` | Tensión Pierna P ($\times 101$). |
 | **`ADC_VN`** | `J2_6` | `GPIO 35` | `ADC1_CH7` | `R9=330k / R10=3.3k` en `/VL_n` | Tensión Pierna N ($\times 101$). $V_{\text{out}} = (V_P - V_N)\cdot 101$. |
 | **`Viout`** | `J2_4` | `GPIO 39` (`VN`) | `ADC1_CH3` | `ACS712-20A` + `R11=1k / R12=2k` | Corriente de carga ($\text{factor } 1.5$, sensibilidad efectiva $66.67\text{ mV/A}$). |
-| **`Vzcd`** | `J2_15` | `GPIO 13` | Entrada Digital | `U6 PC817` + `R8=10k` PU | Diagnóstico de polaridad positiva en salida (`LOW` si $V_{\text{out}} > 0$). |
+
+*(El pin `GPIO 13` / `Vzcd` no es utilizado por el firmware del inversor; tanto la conmutación de 50 Hz como el muestreo ADC1 son 100% autónomos y sincronizados al timer MCPWM interno).*
 
 ### 3. Protocolo UDP del Inversor (Puerto `8888`)
 ```text

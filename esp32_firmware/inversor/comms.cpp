@@ -252,14 +252,13 @@ static void handleUdpPacket(const String &mensaje, char *txBuffer, size_t txBuff
         portEXIT_CRITICAL(&g_stateMux);
 
         s_udp.beginPacket(s_udp.remoteIP(), s_udp.remotePort());
-        s_udp.printf("STATUS:RUN=%d;ESTOP=%d;SRC=%s;WS=%d;ALFA=%.1f;ONDA=%s;VZCD=%d;IOFF=%.3f\n",
+        s_udp.printf("STATUS:RUN=%d;ESTOP=%d;SRC=%s;WS=%d;ALFA=%.1f;ONDA=%s;IOFF=%.3f\n",
                      st.running ? 1 : 0,
                      st.estop_latched ? 1 : 0,
                      st.control_interfaz_activo ? "GUI" : "HW",
                      st.jumper_ws_closed ? 1 : 0,
                      st.alpha_deg,
                      waveModeToStr(st.wave_mode, st.running),
-                     acquisitionIsVzcdPositive() ? 1 : 0,
                      acquisitionGetAcsOffsetPinV());
         s_udp.endPacket();
         return;
