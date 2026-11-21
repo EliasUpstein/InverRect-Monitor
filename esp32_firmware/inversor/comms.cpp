@@ -77,7 +77,10 @@ static void configureOtaCallbacks() {
 static void setupWifiAndOta() {
     configureOtaCallbacks();
 
-    Serial.println("[Core 0] Iniciando conexion Wi-Fi...");
+    Serial.printf("[Core 0] Iniciando conexion Wi-Fi a '%s'...\n", WIFI_SSID);
+    WiFi.persistent(false);
+    WiFi.disconnect(true);
+    vTaskDelay(pdMS_TO_TICKS(100));
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
@@ -99,7 +102,8 @@ static void setupWifiAndOta() {
         Serial.printf("[Core 0] Servidor UDP SCADA activo en puerto %u (OTA host: %s).\n",
                       UDP_PORT, OTA_HOSTNAME);
     } else {
-        Serial.println("\n[Core 0] Aviso: Sin conexion Wi-Fi (Timeout 15 s). Obedeciendo jumper fisico WS (GPIO 27).");
+        Serial.printf("\n[Core 0] Aviso: Sin conexion Wi-Fi tras 15 s (Status: %d). Obedeciendo jumper fisico WS (GPIO 27).\n", (int)WiFi.status());
+        WiFi.disconnect(false);
         portENTER_CRITICAL(&g_stateMux);
         g_inverterState.control_interfaz_activo = false;
         portEXIT_CRITICAL(&g_stateMux);
@@ -412,7 +416,9 @@ static void taskComunicaciones(void *pvParameters) {
             if (ahora - ultimo_reintento_wifi > 10000UL) {
                 ultimo_reintento_wifi = ahora;
                 Serial.println("[Core 0] Reintentando conexion Wi-Fi...");
-                WiFi.reconnect();
+                WiFi.disconnect(false);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
             }
         } else {
             if (!servicios_inicializados) {

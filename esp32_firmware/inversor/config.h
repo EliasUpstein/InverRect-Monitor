@@ -106,11 +106,11 @@ constexpr float ACS712_PIN_CAL_MAX_V = 2.10f;
 // ============================================================================
 // 4. CONFIGURACIÓN DE RED WI-FI, UDP SCADA Y ARDUINO OTA (CORE 0)
 // ============================================================================
-#define WIFI_SSID           "TU_SSID_AQUI"      // Configurar con el SSID de la red local
-#define WIFI_PASSWORD       "TU_PASSWORD_AQUI"  // Configurar con la clave de la red local
+#define WIFI_SSID           "Galaxy A71"      // Configurar con el SSID de la red local
+#define WIFI_PASSWORD       "elias3503"  // Configurar con la clave de la red local
 #define UDP_PORT            8888                // Puerto UDP compatible con pc_software/interfaz.py
 #define OTA_HOSTNAME        "esp32-inversor"    // Hostname exclusivo para OTA (distinto de esp32-rmmoc)
-#define OTA_PASSWORD        "edptest"           // Contraseña OTA del proyecto
+#define OTA_PASSWORD        "epstein"           // Contraseña OTA del proyecto
 
 // ============================================================================
 // 5. ESTADO COMPARTIDO ENTRE CORE 0 (RED/OTA) Y CORE 1 (MCPWM/ADC/WS)

@@ -58,8 +58,8 @@
 // ==========================================
 // 1.2 CONFIGURACIÓN DE RED Y COMUNICACIONES (CORE 0)
 // ==========================================
-const char *WIFI_SSID     = "TU_SSID_AQUI";     // Configurar con el SSID de la red local
-const char *WIFI_PASSWORD = "TU_PASSWORD_AQUI"; // Configurar con la clave de la red local
+const char *WIFI_SSID     = "Galaxy A71";     // Configurar con el SSID de la red local
+const char *WIFI_PASSWORD = "elias3503"; // Configurar con la clave de la red local
 const uint16_t UDP_PORT   = 8888;               // Puerto UDP local de escucha
 
 WiFiUDP udp;
@@ -203,8 +203,34 @@ void IRAM_ATTR isrCrucePorCero() {
 // 6. CONFIGURACIÓN DE RED Y TAREAS (CORE 0)
 // ==========================================
 
+void configurar_callbacks_ota() {
+    // Configuración de seguridad ArduinoOTA (siempre registrada, incluso si el Wi-Fi conecta más tarde)
+    ArduinoOTA.setHostname("esp32-rmmoc");
+    ArduinoOTA.setPassword("edptest");
+
+    ArduinoOTA.onStart([]() {
+        // 1. Desvincular interrupción ZCD para prevenir disparos erráticos durante el flasheo
+        detachInterrupt(digitalPinToInterrupt(PIN_ZERO_CROSS));
+        // 2. Apagar etapa de potencia por seguridad
+        digitalWrite(PIN_DISPARO, LOW);
+        Serial.println("[OTA] ¡Inicio de flasheo inalámbrico! Interrupciones de potencia suspendidas.");
+    });
+
+    ArduinoOTA.onEnd([]() {
+        Serial.println("\n[OTA] Actualización completada con éxito. Reiniciando...");
+    });
+
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("[OTA] Error[%u] al actualizar.\n", error);
+    });
+}
+
 void setup_red() {
-    Serial.println("[Core 0] Iniciando conexión Wi-Fi...");
+    configurar_callbacks_ota();
+    Serial.printf("[Core 0] Iniciando conexión Wi-Fi a '%s'...\n", WIFI_SSID);
+    WiFi.persistent(false);
+    WiFi.disconnect(true);
+    vTaskDelay(pdMS_TO_TICKS(100));
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
@@ -221,31 +247,12 @@ void setup_red() {
         Serial.print("[Core 0] Dirección IP asignada: ");
         Serial.println(WiFi.localIP());
 
-        // Configuración de seguridad ArduinoOTA
-        ArduinoOTA.setHostname("esp32-rmmoc");
-        ArduinoOTA.setPassword("edptest");
-
-        ArduinoOTA.onStart([]() {
-            // 1. Desvincular interrupción ZCD para prevenir disparos erráticos durante el flasheo
-            detachInterrupt(digitalPinToInterrupt(PIN_ZERO_CROSS));
-            // 2. Apagar etapa de potencia por seguridad
-            digitalWrite(PIN_DISPARO, LOW);
-            Serial.println("[OTA] ¡Inicio de flasheo inalámbrico! Interrupciones de potencia suspendidas.");
-        });
-
-        ArduinoOTA.onEnd([]() {
-            Serial.println("\n[OTA] Actualización completada con éxito. Reiniciando...");
-        });
-
-        ArduinoOTA.onError([](ota_error_t error) {
-            Serial.printf("[OTA] Error[%u] al actualizar.\n", error);
-        });
-
         ArduinoOTA.begin();
         udp.begin(UDP_PORT);
         Serial.printf("[Core 0] Servidor UDP a la escucha en el puerto %u.\n", UDP_PORT);
     } else {
-        Serial.println("\n[Core 0] Aviso: Sin conexión Wi-Fi (Timeout 15s). Evaluando controles de hardware local.");
+        Serial.printf("\n[Core 0] Aviso: Sin conexión Wi-Fi tras 15s (Status: %d). Evaluando controles de hardware local.\n", (int)WiFi.status());
+        WiFi.disconnect(false);
         portENTER_CRITICAL(&timerMux);
         control_interfaz_activo = false;
         modo_adc_potenciometro = true;
@@ -281,7 +288,9 @@ void TaskComunicaciones(void *pvParameters) {
             if (ahora - ultimo_reintento_wifi > 10000) {
                 ultimo_reintento_wifi = ahora;
                 Serial.println("[Core 0] Reintentando conexión Wi-Fi...");
-                WiFi.reconnect();
+                WiFi.disconnect(false);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
             }
         } else {
             if (!servicios_inicializados) {
