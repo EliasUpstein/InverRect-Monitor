@@ -168,12 +168,10 @@ void calibrar_cero_acs712() {
     // Validar ventana razonable (1.20 V a 2.10 V en D34) para descartar sensor desconectado
     if (v_medido >= 1.20f && v_medido <= 2.10f) {
         acs_offset_pin_v = v_medido;
-        Serial.printf("[Calibración] Cero ACS712 calibrado en D34: %.4f V (V_ACS=%.3f V)
-",
+        Serial.printf("[Calibración] Cero ACS712 calibrado en D34: %.4f V (V_ACS=%.3f V)\n",
                       acs_offset_pin_v, acs_offset_pin_v * FACTOR_DIVISOR_ACS);
     } else {
-        Serial.printf("[Calibración] Aviso: lectura fuera de rango (%.3f V). Usando nominal %.3f V
-",
+        Serial.printf("[Calibración] Aviso: lectura fuera de rango (%.3f V). Usando nominal %.3f V\n",
                       v_medido, acs_offset_pin_v);
     }
 }
