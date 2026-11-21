@@ -1,4 +1,5 @@
 import socket
+import time
 import ipaddress
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -379,20 +380,8 @@ class InterfazGrafica:
         self.esp32_ip = ip_ingresada
         return self.esp32_ip
 
-    def solicitar_adc_hardware(self):
-        """Solicita al ESP32 (Rectificador o Inversor) vía UDP los vectores reales de tensión y corriente
-        adquiridos durante un ciclo completo de 50 Hz (GET_ADC -> ADC_DATA:...)."""
-        self._validar_y_obtener_ip_esp32()
-
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(1.2)
-        try:
-            sock.sendto(b"GET_ADC", (self.esp32_ip, self.esp32_port))
-            data, _ = sock.recvfrom(4096)
-            respuesta = data.decode('utf-8').strip()
-        finally:
-            sock.close()
-
+    def _parsear_trama_adc(self, respuesta: str):
+        """Parsea un paquete ADC_DATA individual (simple o paginado por bloques C/T)."""
         if not respuesta.startswith("ADC_DATA:"):
             raise RuntimeError(f"Respuesta inesperada del ESP32 al solicitar ADC: {respuesta}")
 
@@ -401,8 +390,10 @@ class InterfazGrafica:
 
         alfa_hw = 0.0
         onda_hw = "COMPLETA"
-        v_lista = []
-        i_lista = []
+        n_total = None
+        total_chunks = 1
+        v_chunk = []
+        i_chunk = []
 
         for seg in segmentos:
             seg = seg.strip()
@@ -410,14 +401,57 @@ class InterfazGrafica:
                 alfa_hw = float(seg[5:])
             elif seg.startswith("ONDA:"):
                 onda_hw = seg[5:].strip().upper()
+            elif seg.startswith("N:"):
+                n_total = int(seg[2:])
+            elif seg.startswith("T:"):
+                total_chunks = max(1, int(seg[2:]))
             elif seg.startswith("V:"):
                 str_v = seg[2:].strip()
                 if str_v:
-                    v_lista = [float(x) for x in str_v.split(",") if x.strip() != ""]
+                    v_chunk = [float(x) for x in str_v.split(",") if x.strip() != ""]
             elif seg.startswith("I:"):
                 str_i = seg[2:].strip()
                 if str_i:
-                    i_lista = [float(x) for x in str_i.split(",") if x.strip() != ""]
+                    i_chunk = [float(x) for x in str_i.split(",") if x.strip() != ""]
+
+        return alfa_hw, onda_hw, n_total, total_chunks, v_chunk, i_chunk
+
+    def solicitar_adc_hardware(self, muestras_solicitadas: int = 64):
+        """Solicita al ESP32 (Rectificador o Inversor) vía UDP los vectores reales de tensión y corriente
+        adquiridos durante un ciclo completo de 50 Hz, soportando resolución dinámica (16..256 muestras)
+        en bloques UDP sin fragmentación."""
+        self._validar_y_obtener_ip_esp32()
+        n_hw = min(max(int(muestras_solicitadas), 16), 256)
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1.2)
+        try:
+            def _capturar_ciclo():
+                cmd0 = f"GET_ADC:N:{n_hw};C:0".encode("utf-8")
+                sock.sendto(cmd0, (self.esp32_ip, self.esp32_port))
+                data, _ = sock.recvfrom(4096)
+                alfa_hw, onda_hw, n_total, total_chunks, v_acum, i_acum = self._parsear_trama_adc(
+                    data.decode("utf-8").strip()
+                )
+
+                for c in range(1, total_chunks):
+                    cmd_c = f"GET_ADC:N:{n_hw};C:{c}".encode("utf-8")
+                    sock.sendto(cmd_c, (self.esp32_ip, self.esp32_port))
+                    data_c, _ = sock.recvfrom(4096)
+                    _, _, _, _, vc, ic = self._parsear_trama_adc(data_c.decode("utf-8").strip())
+                    v_acum.extend(vc)
+                    i_acum.extend(ic)
+
+                return alfa_hw, onda_hw, n_total, v_acum, i_acum
+
+            alfa_hw, onda_hw, n_total, v_lista, i_lista = _capturar_ciclo()
+
+            # Si el ESP32 acaba de recibir un cambio de N, esperar 1 ciclo (~30 ms) y releer con el nuevo N
+            if n_total is not None and n_total != n_hw:
+                time.sleep(0.03)
+                alfa_hw, onda_hw, n_total, v_lista, i_lista = _capturar_ciclo()
+        finally:
+            sock.close()
 
         if len(v_lista) == 0 or len(i_lista) == 0:
             raise RuntimeError("La trama ADC_DATA recibida del ESP32 no contiene muestras válidas de V o I.")
@@ -546,7 +580,7 @@ class InterfazGrafica:
                 # Modo Rectificador: Media Onda / Onda Completa (0° a 180° o potenciómetro ADC)
                 onda_cmd = "MEDIA" if onda_seleccionada == "Media Onda" else "COMPLETA"
 
-                if idx_tipo == 11 or valor_raw.upper() == "ADC":
+                if valor_raw == "" or valor_raw.upper() == "ADC":
                     cmd_alfa = "ALFA:ADC"
                 else:
                     angulo = float(valor_raw)
@@ -611,7 +645,7 @@ class InterfazGrafica:
             onda_hw_adc = "COMPLETA"
             if idx_senal == 11:
                 # Modo 11: Adquisición real de tensión (D35) y corriente (D34) desde el ESP32
-                v_hw, i_hw, alfa_hw, onda_hw_adc = self.solicitar_adc_hardware()
+                v_hw, i_hw, alfa_hw, onda_hw_adc = self.solicitar_adc_hardware(muestras)
                 v, i = self.analizador.procesar_muestras_adc(v_hw, i_hw)
                 alfa_rad = np.radians(alfa_hw)
                 vp_escala = max(float(np.max(np.abs(v))), 1.0)

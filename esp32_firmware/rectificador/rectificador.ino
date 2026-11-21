@@ -38,7 +38,10 @@
 // ==========================================
 // 1.1 PARÁMETROS DE CALIBRACIÓN Y ESCALADO DEL ADC (D35 Y D34)
 // ==========================================
-#define NUM_MUESTRAS_CICLO        64        // Muestras por ciclo completo (360° = 20 ms) enviadas a la interfaz
+#define MAX_MUESTRAS_CICLO        256       // Máximo de muestras por ciclo completo (360° = 20 ms)
+#define MIN_MUESTRAS_CICLO        16        // Mínimo de muestras por ciclo completo
+#define DEFAULT_MUESTRAS_CICLO    64        // Cantidad de muestras por ciclo por defecto
+#define CHUNK_MUESTRAS_UDP        64        // Muestras por datagrama UDP (< 1400 bytes, sin fragmentación)
 #define ADC_VREF_V                3.3f      // Tensión de referencia del ADC del ESP32 (3.3 V)
 #define ADC_MAX_COUNTS            4095.0f   // Resolución de 12 bits (0 - 4095)
 
@@ -46,7 +49,7 @@
 #define R_DIV_TENSION_SUP_OHM     330000.0f // Resistencia superior del divisor de tensión (330 kOhm en 220V / 18 kOhm en 12V)
 #define R_DIV_TENSION_INF_OHM     1000.0f   // Resistencia inferior del divisor de tensión (R11 = 1 kOhm)
 #define FACTOR_ESCALA_TENSION     ((R_DIV_TENSION_SUP_OHM + R_DIV_TENSION_INF_OHM) / R_DIV_TENSION_INF_OHM)
-#define OFFSET_TENSION_ADC_V      1.65f     // Tierra virtual V_1.65 (1.65 V, o 0.0f si el jumper referencia a GND)
+#define OFFSET_TENSION_ADC_V      0.0f      // 0.0f con jumper J8 a GND (usar 1.65f si se usa tierra virtual V_1.65)
 
 // Sensor de Corriente ACS712 y su divisor resistivo en D34 (En PCB: R16 = 1k en serie y R15 = 2k a GND)
 #define R_DIV_ACS_SERIE_OHM       1000.0f   // Resistencia superior del divisor del ACS712 (R16 = 1 kOhm)
@@ -87,11 +90,15 @@ volatile bool control_interfaz_activo = false;       // true = Obedece a la inte
 volatile bool modo_adc_potenciometro = true;         // true = Ángulo por Potenciómetro ADC; false = Ángulo fijo por UDP
 volatile bool modo_onda_completa = true;             // true = Onda Completa (todos los cruces); false = Media Onda (intercalado)
 
+// Resolución dinámica de muestreo ADC (actualizable desde la interfaz vía GET_ADC:N:<n>)
+volatile int num_muestras_objetivo = DEFAULT_MUESTRAS_CICLO;
+volatile int num_muestras_listas   = DEFAULT_MUESTRAS_CICLO;
+
 // Buffers de adquisición (Core 1) y de transmisión UDP (compartidos con Core 0)
-float buffer_captura_v[NUM_MUESTRAS_CICLO];
-float buffer_captura_i[NUM_MUESTRAS_CICLO];
-float buffer_listo_v[NUM_MUESTRAS_CICLO];
-float buffer_listo_i[NUM_MUESTRAS_CICLO];
+float buffer_captura_v[MAX_MUESTRAS_CICLO];
+float buffer_captura_i[MAX_MUESTRAS_CICLO];
+float buffer_listo_v[MAX_MUESTRAS_CICLO];
+float buffer_listo_i[MAX_MUESTRAS_CICLO];
 
 // ==========================================
 // 3. PROTOTIPOS DE FUNCIONES
@@ -266,8 +273,11 @@ void TaskComunicaciones(void *pvParameters) {
 
     char packetBuffer[64];
     static char txBuffer[1400]; // Buffer para empaquetar las 64 muestras de tensión y corriente en un datagrama UDP
-    float copia_v[NUM_MUESTRAS_CICLO];
-    float copia_i[NUM_MUESTRAS_CICLO];
+    static float copia_v[MAX_MUESTRAS_CICLO];
+    static float copia_i[MAX_MUESTRAS_CICLO];
+    static int snap_n = DEFAULT_MUESTRAS_CICLO;
+    static float alfa_snap = 90.0f;
+    static bool onda_snap = true;
 
     uint32_t ultimo_reintento_wifi = 0;
     bool servicios_inicializados = (WiFi.status() == WL_CONNECTED);
@@ -314,44 +324,76 @@ void TaskComunicaciones(void *pvParameters) {
                     mensaje.toUpperCase();
 
                     // Caso A: Solicitud de lectura de muestras ADC de Tensión (D35) y Corriente (D34)
+                    // Soporta formato extendido: GET_ADC:N:<16..256>;C:<chunk_idx>
                     if (mensaje.startsWith("GET_ADC") || mensaje.startsWith("LEER_ADC")) {
-                        float alfa_snap;
-                        bool onda_snap;
-
-                        portENTER_CRITICAL(&timerMux);
-                        alfa_snap = angulo_disparo_deg;
-                        onda_snap = modo_onda_completa;
-                        for (int k = 0; k < NUM_MUESTRAS_CICLO; k++) {
-                            copia_v[k] = buffer_listo_v[k];
-                            copia_i[k] = buffer_listo_i[k];
+                        int idx_n = mensaje.indexOf("N:");
+                        if (idx_n >= 0) {
+                            int n_sol = mensaje.substring(idx_n + 2).toInt();
+                            if (n_sol < MIN_MUESTRAS_CICLO) n_sol = MIN_MUESTRAS_CICLO;
+                            if (n_sol > MAX_MUESTRAS_CICLO) n_sol = MAX_MUESTRAS_CICLO;
+                            portENTER_CRITICAL(&timerMux);
+                            num_muestras_objetivo = n_sol;
+                            portEXIT_CRITICAL(&timerMux);
                         }
-                        portEXIT_CRITICAL(&timerMux);
+
+                        int chunk = 0;
+                        int idx_c = mensaje.indexOf("C:");
+                        if (idx_c >= 0) {
+                            chunk = mensaje.substring(idx_c + 2).toInt();
+                            if (chunk < 0) chunk = 0;
+                        }
+
+                        // En el primer bloque (C:0) congelamos un snapshot atómico del ciclo completo
+                        if (chunk == 0 || snap_n <= 0) {
+                            portENTER_CRITICAL(&timerMux);
+                            alfa_snap = angulo_disparo_deg;
+                            onda_snap = modo_onda_completa;
+                            snap_n = num_muestras_listas;
+                            if (snap_n < MIN_MUESTRAS_CICLO) snap_n = MIN_MUESTRAS_CICLO;
+                            if (snap_n > MAX_MUESTRAS_CICLO) snap_n = MAX_MUESTRAS_CICLO;
+                            for (int k = 0; k < snap_n; k++) {
+                                copia_v[k] = buffer_listo_v[k];
+                                copia_i[k] = buffer_listo_i[k];
+                            }
+                            portEXIT_CRITICAL(&timerMux);
+                        }
+
+                        int total_chunks = (snap_n + CHUNK_MUESTRAS_UDP - 1) / CHUNK_MUESTRAS_UDP;
+                        if (total_chunks < 1) total_chunks = 1;
+                        if (chunk >= total_chunks) chunk = total_chunks - 1;
+
+                        int inicio = chunk * CHUNK_MUESTRAS_UDP;
+                        int fin = inicio + CHUNK_MUESTRAS_UDP;
+                        if (fin > snap_n) fin = snap_n;
 
                         const char *str_onda = onda_snap ? "COMPLETA" : "MEDIA";
                         int pos = snprintf(
                             txBuffer,
                             sizeof(txBuffer),
-                            "ADC_DATA:ALFA:%.1f;ONDA:%s;V:",
+                            "ADC_DATA:ALFA:%.1f;ONDA:%s;N:%d;C:%d;T:%d;V:",
                             alfa_snap,
-                            str_onda
+                            str_onda,
+                            snap_n,
+                            chunk,
+                            total_chunks
                         );
 
-                        for (int k = 0; k < NUM_MUESTRAS_CICLO && pos < (int)sizeof(txBuffer) - 24; k++) {
+                        for (int k = inicio; k < fin && pos < (int)sizeof(txBuffer) - 24; k++) {
                             pos += snprintf(
                                 txBuffer + pos,
                                 sizeof(txBuffer) - pos,
-                                (k < NUM_MUESTRAS_CICLO - 1) ? "%.2f," : "%.2f",
+                                (k < fin - 1) ? "%.2f," : "%.2f",
                                 copia_v[k]
                             );
                         }
 
                         pos += snprintf(txBuffer + pos, sizeof(txBuffer) - pos, ";I:");
 
-                        for (int k = 0; k < NUM_MUESTRAS_CICLO && pos < (int)sizeof(txBuffer) - 16; k++) {
+                        for (int k = inicio; k < fin && pos < (int)sizeof(txBuffer) - 16; k++) {
                             pos += snprintf(
                                 txBuffer + pos,
                                 sizeof(txBuffer) - pos,
-                                (k < NUM_MUESTRAS_CICLO - 1) ? "%.3f," : "%.3f\n",
+                                (k < fin - 1) ? "%.3f," : "%.3f\n",
                                 copia_i[k]
                             );
                         }
@@ -478,9 +520,10 @@ void setup() {
 // 8. BUCLE PRINCIPAL DE POTENCIA Y ADQUISICIÓN SÍNCRONA ADC (CORE 1)
 // ==========================================
 void loop() {
-    static int indiceMuestra = NUM_MUESTRAS_CICLO; // Inicia completado a la espera del primer ciclo
+    static int muestrasCicloActual = DEFAULT_MUESTRAS_CICLO;
+    static int indiceMuestra = DEFAULT_MUESTRAS_CICLO; // Inicia completado a la espera del primer ciclo
     static unsigned long tInicioMuestreo = 0;
-    static unsigned long pasoMuestreo_us = (PERIODO_SEMICICLO_DEFAULT_US * 2) / NUM_MUESTRAS_CICLO;
+    static unsigned long pasoMuestreo_us = (PERIODO_SEMICICLO_DEFAULT_US * 2) / DEFAULT_MUESTRAS_CICLO;
 
     // 1. PRIORIDAD MÁXIMA: Ejecución del disparo de compuerta en sincronía con el cruce por cero
     bool proximo_a_disparar = false;
@@ -508,25 +551,34 @@ void loop() {
 
     // 2. Sincronización de inicio de ventana de muestreo de ciclo completo (360° = 2 semiciclos)
     unsigned long ahora_us = micros();
-    if (indiceMuestra >= NUM_MUESTRAS_CICLO) {
+    if (indiceMuestra >= muestrasCicloActual) {
         if (nuevoCicloMuestreoZCD) {
             portENTER_CRITICAL(&timerMux);
             nuevoCicloMuestreoZCD = false;
             tInicioMuestreo = timestampInicioCiclo;
-            pasoMuestreo_us = (periodoSemiciclo * 2) / NUM_MUESTRAS_CICLO;
+            muestrasCicloActual = num_muestras_objetivo;
+            if (muestrasCicloActual < MIN_MUESTRAS_CICLO) muestrasCicloActual = MIN_MUESTRAS_CICLO;
+            if (muestrasCicloActual > MAX_MUESTRAS_CICLO) muestrasCicloActual = MAX_MUESTRAS_CICLO;
+            pasoMuestreo_us = (periodoSemiciclo * 2) / (unsigned long)muestrasCicloActual;
             portEXIT_CRITICAL(&timerMux);
-            if (pasoMuestreo_us < 100) pasoMuestreo_us = 312;
+            if (pasoMuestreo_us < 40) pasoMuestreo_us = 78;
             indiceMuestra = 0;
         } else if (ahora_us - tiempoUltimoCruce > 40000) {
             // Modo autónomo (free-running a 50 Hz) si no hay señal de red en el detector ZCD
+            portENTER_CRITICAL(&timerMux);
+            muestrasCicloActual = num_muestras_objetivo;
+            portEXIT_CRITICAL(&timerMux);
+            if (muestrasCicloActual < MIN_MUESTRAS_CICLO) muestrasCicloActual = MIN_MUESTRAS_CICLO;
+            if (muestrasCicloActual > MAX_MUESTRAS_CICLO) muestrasCicloActual = MAX_MUESTRAS_CICLO;
             tInicioMuestreo = ahora_us;
-            pasoMuestreo_us = (PERIODO_SEMICICLO_DEFAULT_US * 2) / NUM_MUESTRAS_CICLO;
+            pasoMuestreo_us = (PERIODO_SEMICICLO_DEFAULT_US * 2) / (unsigned long)muestrasCicloActual;
+            if (pasoMuestreo_us < 40) pasoMuestreo_us = 78;
             indiceMuestra = 0;
         }
     }
 
     // 3. Adquisición equidistante de Tensión (D35) y Corriente (D34 - ACS712)
-    if (indiceMuestra < NUM_MUESTRAS_CICLO) {
+    if (indiceMuestra < muestrasCicloActual) {
         if ((ahora_us - tInicioMuestreo) >= ((unsigned long)indiceMuestra * pasoMuestreo_us)) {
             int raw_v = analogRead(PIN_ADC_TENSION);
             int raw_i = analogRead(PIN_ADC_CORRIENTE);
@@ -536,9 +588,10 @@ void loop() {
             indiceMuestra++;
 
             // Al completar las N muestras del ciclo completo, publicar de forma atómica hacia el buffer de red
-            if (indiceMuestra >= NUM_MUESTRAS_CICLO) {
+            if (indiceMuestra >= muestrasCicloActual) {
                 portENTER_CRITICAL(&timerMux);
-                for (int k = 0; k < NUM_MUESTRAS_CICLO; k++) {
+                num_muestras_listas = muestrasCicloActual;
+                for (int k = 0; k < muestrasCicloActual; k++) {
                     buffer_listo_v[k] = buffer_captura_v[k];
                     buffer_listo_i[k] = buffer_captura_i[k];
                 }
