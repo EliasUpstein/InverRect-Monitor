@@ -94,6 +94,9 @@ volatile bool modo_onda_completa = true;             // true = Onda Completa (to
 volatile int num_muestras_objetivo = DEFAULT_MUESTRAS_CICLO;
 volatile int num_muestras_listas   = DEFAULT_MUESTRAS_CICLO;
 
+// Offset real calibrado del ACS712 en el pin D34 (se mide en setup con tiristores apagados, I = 0 A)
+float acs_offset_pin_v = ACS712_OFFSET_CERO_V / FACTOR_DIVISOR_ACS;
+
 // Buffers de adquisición (Core 1) y de transmisión UDP (compartidos con Core 0)
 float buffer_captura_v[MAX_MUESTRAS_CICLO];
 float buffer_captura_i[MAX_MUESTRAS_CICLO];
@@ -104,8 +107,9 @@ float buffer_listo_i[MAX_MUESTRAS_CICLO];
 // 3. PROTOTIPOS DE FUNCIONES
 // ==========================================
 inline uint32_t calcular_retardo_us(float grados, unsigned long periodo_semiciclo_us);
-inline float convertir_adc_a_tension(int adc_raw);
-inline float convertir_adc_a_corriente(int adc_raw);
+inline float convertir_mv_a_tension(uint32_t mv_pin);
+inline float convertir_mv_a_corriente(uint32_t mv_pin);
+void calibrar_cero_acs712();
 void actualizar_parametros_disparo(float grados, bool usar_adc, bool onda_completa, bool desde_interfaz);
 void IRAM_ATTR isrCrucePorCero();
 void setup_red();
@@ -131,22 +135,47 @@ inline uint32_t calcular_retardo_us(float grados, unsigned long periodo_semicicl
 }
 
 /**
- * Convierte la lectura cruda del ADC en D35 (0-4095) a tensión real de salida en Voltios (V),
- * considerando la referencia de tierra virtual y la relación del divisor resistivo.
+ * Convierte la lectura calibrada en milivoltios del pin D35 a tensión real de salida en Voltios (V),
+ * usando la calibración eFuse de fábrica del ESP32 (analogReadMilliVolts).
  */
-inline float convertir_adc_a_tension(int adc_raw) {
-    float v_pin = (adc_raw / ADC_MAX_COUNTS) * ADC_VREF_V;
+inline float convertir_mv_a_tension(uint32_t mv_pin) {
+    float v_pin = mv_pin * 0.001f;
     return (v_pin - OFFSET_TENSION_ADC_V) * FACTOR_ESCALA_TENSION;
 }
 
 /**
- * Convierte la lectura cruda del ADC en D34 (0-4095) a corriente real de salida en Amperios (A),
- * compensando primero el divisor resistivo (R16/R15) y luego el offset y sensibilidad del ACS712.
+ * Convierte la lectura calibrada en milivoltios del pin D34 a corriente real en Amperios (A),
+ * descontando el offset real calibrado en reposo y compensando el divisor resistivo (R16/R15).
  */
-inline float convertir_adc_a_corriente(int adc_raw) {
-    float v_pin = (adc_raw / ADC_MAX_COUNTS) * ADC_VREF_V;
-    float v_acs = v_pin * FACTOR_DIVISOR_ACS;
-    return (v_acs - ACS712_OFFSET_CERO_V) / ACS712_SENSIBILIDAD_V_A;
+inline float convertir_mv_a_corriente(uint32_t mv_pin) {
+    float v_pin = mv_pin * 0.001f;
+    float delta_v_acs = (v_pin - acs_offset_pin_v) * FACTOR_DIVISOR_ACS;
+    return delta_v_acs / ACS712_SENSIBILIDAD_V_A;
+}
+
+/**
+ * Calibra automáticamente el cero del ACS712 promediando 64 lecturas en D34 con los tiristores apagados.
+ * Elimina el error de offset provocado por variaciones de la fuente +5V o tolerancias de R15/R16.
+ */
+void calibrar_cero_acs712() {
+    uint32_t suma_mv = 0;
+    const int N_CAL = 64;
+    for (int k = 0; k < N_CAL; k++) {
+        suma_mv += analogReadMilliVolts(PIN_ADC_CORRIENTE);
+        delayMicroseconds(200);
+    }
+    float v_medido = (suma_mv / (float)N_CAL) * 0.001f;
+    // Validar ventana razonable (1.20 V a 2.10 V en D34) para descartar sensor desconectado
+    if (v_medido >= 1.20f && v_medido <= 2.10f) {
+        acs_offset_pin_v = v_medido;
+        Serial.printf("[Calibración] Cero ACS712 calibrado en D34: %.4f V (V_ACS=%.3f V)
+",
+                      acs_offset_pin_v, acs_offset_pin_v * FACTOR_DIVISOR_ACS);
+    } else {
+        Serial.printf("[Calibración] Aviso: lectura fuera de rango (%.3f V). Usando nominal %.3f V
+",
+                      v_medido, acs_offset_pin_v);
+    }
 }
 
 /**
@@ -492,6 +521,9 @@ void setup() {
     analogReadResolution(12);
     analogSetAttenuation(ADC_11db);
 
+    // Calibrar el cero real del ACS712 antes de habilitar disparos (I = 0 A)
+    calibrar_cero_acs712();
+
     // 2. Evaluar estado inicial del hardware local antes de establecer conexión
     bool onda_hw_inicial = (digitalRead(PIN_SELECTOR_ONDA) == HIGH);
     int adc_inicial = analogRead(PIN_POTENTIOMETER);
@@ -580,11 +612,11 @@ void loop() {
     // 3. Adquisición equidistante de Tensión (D35) y Corriente (D34 - ACS712)
     if (indiceMuestra < muestrasCicloActual) {
         if ((ahora_us - tInicioMuestreo) >= ((unsigned long)indiceMuestra * pasoMuestreo_us)) {
-            int raw_v = analogRead(PIN_ADC_TENSION);
-            int raw_i = analogRead(PIN_ADC_CORRIENTE);
+            uint32_t mv_v = analogReadMilliVolts(PIN_ADC_TENSION);
+            uint32_t mv_i = analogReadMilliVolts(PIN_ADC_CORRIENTE);
 
-            buffer_captura_v[indiceMuestra] = convertir_adc_a_tension(raw_v);
-            buffer_captura_i[indiceMuestra] = convertir_adc_a_corriente(raw_i);
+            buffer_captura_v[indiceMuestra] = convertir_mv_a_tension(mv_v);
+            buffer_captura_i[indiceMuestra] = convertir_mv_a_corriente(mv_i);
             indiceMuestra++;
 
             // Al completar las N muestras del ciclo completo, publicar de forma atómica hacia el buffer de red
