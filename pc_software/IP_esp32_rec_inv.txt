@@ -1,0 +1,3 @@
+Rectificador: 10.36.161.177
+
+Inversor: 10.36.161.195
