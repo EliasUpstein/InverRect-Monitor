@@ -1,6 +1,6 @@
 LTspice 26.1.1 for Windows
 Circuit: C:\Users\Elias Upstein\Desktop\Eli\Universidad\Ingeniería Electrónica\Quinto Nivel\Electrónica de Potencia\Propios\Proyecto 2C\InverRect-Monitor\Simulaciones\Inversor\inversor.net
-Start Time: Thu Nov 19 23:19:54 2026
+Start Time: Sun Nov 22 19:43:19 2026
 
 .step alpha=0
 solver = Normal
@@ -14,7 +14,7 @@ Direct Newton iteration succeeded in finding operating point.
 
 .step alpha=30
 Direct Newton iteration succeeded in finding operating point.
-Total elapsed time: 30.611 seconds.
+Total elapsed time: 31.648 seconds.
 Total iterations: 448707
 
 Files loaded:

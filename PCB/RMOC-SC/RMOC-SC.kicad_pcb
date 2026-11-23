@@ -913,7 +913,7 @@
 			(uuid "6ae21f51-417b-400a-9780-2dbca5eafbeb")
 		)
 		(embedded_fonts no)
-		(model "${KIPRJMOD}/Libraries/esp32-dev-kit-v1-1.snapshot.3/esp32_dev_kit_v1_asm.stp"
+		(model "C:/Users/Elias Upstein/Desktop/Eli/Universidad/Ingeniería Electrónica/Cuarto Nivel/Medidas Electrónicas I/Proyecto/Decibelimetro/Decibelimetro_testBoard/Libraries/esp32-dev-kit-v1-1.snapshot.3/esp32_dev_kit_v1_asm.stp"
 			(offset
 				(xyz 0.2 -23.05 2.54)
 			)
@@ -2656,7 +2656,7 @@
 			(uuid "1d404845-1bf2-47eb-8823-8aa268dac9ce")
 		)
 		(embedded_fonts no)
-		(model "C:/Users/Elias/Desktop/Elias/Potencia/Proyecto2C/PCB/Libraries/Potencimetro_1.step"
+		(model "C:/Users/Elias Upstein/Desktop/Eli/Universidad/Ingeniería Electrónica/Quinto Nivel/Electrónica de Potencia/Propios/Proyecto 2C/InverRect-Monitor/PCB/Libraries/Potencimetro_1.step"
 			(offset
 				(xyz 0 5 2.5)
 			)
@@ -3145,7 +3145,7 @@
 			(uuid "c5cd2de7-317f-4134-beca-77283f1b87df")
 		)
 		(embedded_fonts no)
-		(model "C:/Users/Elias/Desktop/Elias/Potencia/Proyecto2C/PCB/Libraries/WX-DC12003_Kicad-main/WX-DC12003.step"
+		(model "C:/Users/Elias Upstein/Desktop/Eli/Universidad/Ingeniería Electrónica/Quinto Nivel/Electrónica de Potencia/Propios/Proyecto 2C/InverRect-Monitor/PCB/Libraries/WX-DC12003_Kicad-main/WX-DC12003.step"
 			(offset
 				(xyz 12.7 8.8 1.54)
 			)
@@ -3156,7 +3156,7 @@
 				(xyz -90 0 90)
 			)
 		)
-		(model "C:/Users/Elias/Desktop/Elias/Potencia/Proyecto2C/PCB/Libraries/WX-DC12003_Kicad-main/2-Pin Header - Male - 2.54mm.step"
+		(model "C:/Users/Elias Upstein/Desktop/Eli/Universidad/Ingeniería Electrónica/Quinto Nivel/Electrónica de Potencia/Propios/Proyecto 2C/InverRect-Monitor/PCB/Libraries/WX-DC12003_Kicad-main/2-Pin Header - Male - 2.54mm.step"
 			(offset
 				(xyz -9.8 -9.5 0)
 			)
@@ -3167,7 +3167,7 @@
 				(xyz -0 -0 -0)
 			)
 		)
-		(model "C:/Users/Elias/Desktop/Elias/Potencia/Proyecto2C/PCB/Libraries/WX-DC12003_Kicad-main/3-Pin Header - Male - 2.54mm.step"
+		(model "C:/Users/Elias Upstein/Desktop/Eli/Universidad/Ingeniería Electrónica/Quinto Nivel/Electrónica de Potencia/Propios/Proyecto 2C/InverRect-Monitor/PCB/Libraries/WX-DC12003_Kicad-main/3-Pin Header - Male - 2.54mm.step"
 			(offset
 				(xyz 5.4 -9.5 0)
 			)
@@ -11863,6 +11863,30 @@
 		(uuid "f6d30ce0-fc61-4ac2-a9ca-78c2a2c2b924")
 	)
 	(segment
+		(start 168.205 59.275)
+		(end 169.22 60.29)
+		(width 1.5)
+		(layer "B.Cu")
+		(net "/MO_OC")
+		(uuid "2d143d0e-6b68-43df-b4b7-898a41bd369b")
+	)
+	(segment
+		(start 163.055 59.275)
+		(end 168.205 59.275)
+		(width 1.5)
+		(layer "B.Cu")
+		(net "/MO_OC")
+		(uuid "a8d1ba92-ce07-4200-804b-77e7aecdee01")
+	)
+	(segment
+		(start 169.22 60.29)
+		(end 169.22 65.3375)
+		(width 1.5)
+		(layer "B.Cu")
+		(net "/MO_OC")
+		(uuid "fb8e6c8f-0ee3-46a4-ad27-4daee5f2e5d4")
+	)
+	(segment
 		(start 153.77 111.76)
 		(end 153.75 111.74)
 		(width 1.5)
@@ -13573,30 +13597,6 @@
 		(layer "B.Cu")
 		(net "/Rdisp1_12")
 		(uuid "1ac96b04-908d-45c8-9781-c3b7d356ee32")
-	)
-	(segment
-		(start 168.205 59.275)
-		(end 169.22 60.29)
-		(width 1.5)
-		(layer "B.Cu")
-		(net "/MO_OC")
-		(uuid "2d143d0e-6b68-43df-b4b7-898a41bd369b")
-	)
-	(segment
-		(start 163.055 59.275)
-		(end 168.205 59.275)
-		(width 1.5)
-		(layer "B.Cu")
-		(net "/MO_OC")
-		(uuid "a8d1ba92-ce07-4200-804b-77e7aecdee01")
-	)
-	(segment
-		(start 169.22 60.29)
-		(end 169.22 65.3375)
-		(width 1.5)
-		(layer "B.Cu")
-		(net "/MO_OC")
-		(uuid "fb8e6c8f-0ee3-46a4-ad27-4daee5f2e5d4")
 	)
 	(zone
 		(net "GND")
